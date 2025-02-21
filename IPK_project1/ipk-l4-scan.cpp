@@ -8,7 +8,14 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <netdb.h>
+#include <fcntl.h>
 #include <csignal>
+#include <netinet/tcp.h>
+#include <netinet/ip.h> 
+#include <pcap.h>
+#include <netinet/ip_icmp.h>
+#include <errno.h>
+#include <cstring>
 
 const int BUFFER_SIZE = 1024;
 
@@ -104,19 +111,112 @@ std::string resolve_hostname(const std::string& hostname) {
     return std::string(inet_ntoa(*addr_list[0]));
 }
 
-void scan_tcp(std::vector<int> tcp_ports, std::string IP, int timeout) {
+void send_syn_packet(int sock, const sockaddr_in& addr) {
+    char buffer[40];
+    memset(buffer, 0, sizeof(buffer));
+
+    struct tcphdr *tcp_header = (struct tcphdr *)(buffer);
+
+    tcp_header->source = htons(12345);
+    tcp_header->dest = addr.sin_port;
+    tcp_header->seq = htonl(0);
+    tcp_header->ack_seq = 0;
+    tcp_header->doff = 5;
+    tcp_header->syn = 1;
+    tcp_header->window = htons(65535);
+    tcp_header->check = 0;
+    tcp_header->urg_ptr = 0;
+
+    if (sendto(sock, buffer, sizeof(struct tcphdr), 0, (sockaddr*)&addr, sizeof(addr)) < 0) {
+        std::cerr << "Failed to send TCP SYN packet: " << strerror(errno) << std::endl;
+    }
+}
+
+int listen_for_response(int sock, int port, const std::string& IP, int timeout) {
+    char buffer[BUFFER_SIZE];
+    sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
+
+    struct timeval tv;
+    tv.tv_sec = timeout / 1000;
+    tv.tv_usec = (timeout % 1000) * 1000;
+    setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
+
+    int recv_len = recvfrom(sock, buffer, BUFFER_SIZE, 0, (sockaddr*)&addr, &addr_len);
+    std::cerr << "Received packet length: " << recv_len << std::endl;
+
+    if (recv_len > 0) {
+        std::cerr << "Received packet data: ";
+        for (int i = 0; i < recv_len; ++i) {
+            std::cerr << std::hex << (unsigned int)(unsigned char)buffer[i] << " ";
+        }
+        std::cerr << std::dec << std::endl;
+
+        struct ip *iph = (struct ip *)buffer;
+        struct tcphdr *tcph = (struct tcphdr *)(buffer + iph->ip_hl * 4);
+
+        std::cerr << "IP Header Length: " << (int)iph->ip_hl << std::endl;
+        std::cerr << "Protocol: " << (int)iph->ip_p << std::endl;
+        std::cerr << "Source IP: " << inet_ntoa(addr.sin_addr) << std::endl;
+        std::cerr << "Destination Port: " << ntohs(tcph->dest) << std::endl;
+        std::cerr << "Source Port: " << ntohs(tcph->source) << std::endl;
+        std::cerr << "TCP Flags: " << std::hex << (unsigned int)tcph->th_flags << std::dec << std::endl;
+
+        if (iph->ip_p == IPPROTO_TCP) {
+            int dst_port = ntohs(tcph->dest);
+            if (dst_port == port) {
+                if (tcph->syn && tcph->ack) {
+                    std::cout << port << "/tcp open." << std::endl;
+                    return 0;
+                } else if (tcph->rst) {
+                    std::cout << port << "/tcp closed." << std::endl;
+                    return 0;
+                }
+                return 1;
+            } else {
+                std::cerr << "Port mismatch: Received " << dst_port << ", Expected " << port << std::endl;
+                return 1;
+            }
+        }
+    } else {
+        std::cerr << "recvfrom error: " << strerror(errno) << std::endl;
+        return 1;
+    }
 }
 
 
-void scan_udp(std::vector<int> udp_ports, std::string IP, int timeout) { // TODO all ports timeout and they are marked as closed
+void scan_tcp(const std::vector<int>& tcp_ports, const std::string& IP, int timeout) {
+    int sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
+    if (sock < 0) {
+        std::cerr << "Failed to create TCP socket: " << strerror(errno) << std::endl;
+        return;
+    }
+
+    for (int port : tcp_ports) {
+        sockaddr_in addr;
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        inet_pton(AF_INET, IP.c_str(), &addr.sin_addr);
+        send_syn_packet(sock, addr);
+
+        if (listen_for_response(sock, port, IP, timeout)) {
+            send_syn_packet(sock, addr);
+            if(listen_for_response(sock, port, IP, timeout)) 
+                std::cout << port << "/tcp filtered" << std::endl;
+        }
+    }
+
+    close(sock);
+}
+
+void scan_udp(std::vector<int> udp_ports, std::string IP, int timeout) { // TODO all ports timeout and they are marked as open 
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if(sock < 0) {
         std::cerr << "Failed to create socket." << std::endl;
         exit(1);
     }
 
-    for(int i = 0; i < static_cast<int>(udp_ports.size()); i++) {
-        int port = udp_ports[i];
+    for (int port : udp_ports) {
         sockaddr_in addr;
         addr.sin_family = AF_INET;
         addr.sin_port = htons(port);
@@ -136,11 +236,18 @@ void scan_udp(std::vector<int> udp_ports, std::string IP, int timeout) { // TODO
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
         socklen_t len = sizeof(addr); 
 
-        if(recvfrom(sock, buffer, sizeof(buffer), 0,(struct sockaddr *) &addr, &len) < 0) {
-            std::cout << port << "/udp closed" << std::endl;
+        if(recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *) &addr, &len) < 0) { //TODO ze zadani jsem pochopil (prisla zprava && icmp code 3 -> open; jinak close)... Co vic, cekat timeout? nekolik pokusu? nic tam neni napsano :(            
+            std::cout << port << "/udp open" << std::endl;
         }
         else {
-            std::cout << port << "/udp open." << std::endl;
+            struct ip* ip_hdr = (struct ip*)buffer;
+            struct icmp* icmp_hdr = (struct icmp*)(buffer + (ip_hdr->ip_hl * 4));
+
+            if (icmp_hdr->icmp_type == ICMP_DEST_UNREACH && icmp_hdr->icmp_code == ICMP_PORT_UNREACH)
+                std::cout << port << "/udp closed." << std::endl;
+            else 
+                std::cout << port << "/udp open" << std::endl;
+
         }
     }
 

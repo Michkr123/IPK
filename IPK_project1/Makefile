@@ -6,7 +6,7 @@ SRC = ipk-l4-scan.cpp
 all: $(TARGET)
 
 $(TARGET): $(SRC)
-	$(CC) $(CFLAGS) -o $(TARGET) $(SRC)
+	$(CC) $(CFLAGS) -o $(TARGET) $(SRC) -lpcap
 
 clean:
 	rm -f $(TARGET)
