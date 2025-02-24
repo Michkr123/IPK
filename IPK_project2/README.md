@@ -9,3 +9,4 @@ Kompletní původní zadání je zkopírováno (tedy nejsem autorem) v project.m
 ## Zdroje
 
 getopt https://www.gnu.org/software/libc/manual/html_node/Example-of-Getopt.html
+split https://medium.com/@ryan_forrester_/splitting-strings-in-c-a-complete-guide-cf162837f4ba

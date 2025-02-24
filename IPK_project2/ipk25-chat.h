@@ -1,0 +1,25 @@
+#ifndef MAIN_H
+#define MAIN_H
+
+#include <iostream>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <getopt.h>
+#include <cstdint>
+
+struct ProgramArgs {
+    std::string protocol;
+    std::string hostname;
+    std::string command;
+    std::string username;
+    std::string secret;
+    std::string displayName;
+
+    uint16_t port = 4567;
+    uint16_t timeout = 250;
+    uint16_t messageID = 0;
+    uint8_t retry_count = 3;
+};
+
+#endif // MAIN_H
