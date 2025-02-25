@@ -72,7 +72,6 @@ int auth(ProgramArgs &args) {
 
         if (tokens.size() == 4) {
             if(tokens[0] == "/auth") {
-                args.command = tokens[0];
                 args.username = tokens[1];
                 args.secret = tokens[2];
                 args.displayName = tokens[3];
@@ -81,6 +80,11 @@ int auth(ProgramArgs &args) {
             }
         }
     }
+
+    if(args.protocol == "udp")
+        udp_auth(&args);
+    // else
+    //     tcp_auth(args);
 }
 
 int main(int argc, char *argv[]) {
@@ -106,7 +110,8 @@ int main(int argc, char *argv[]) {
     auth(args); // authentication
     std::cout << "auth succesfull." << std::endl;
 
-
+    std::string MessageContent;
+    uint16_t refMessageID;
     bool exit_flag = false;
     while (!exit_flag) {
         std::string input;
@@ -114,41 +119,47 @@ int main(int argc, char *argv[]) {
 
         auto tokens = split(input);
 
-        if(tokens[0] == "/join") {
+        if(tokens[0] == "/join" && tokens.size() == 3) {
             if(args.protocol == "udp")
-                udp_join(&args);
+                udp_join(&args, MessageContent);
             else
                 tcp_join(&args);
         }
-        else if(tokens[0] == "/reply") {
+        else if(tokens[0] == "/reply" && tokens.size() == 3) {
             if(args.protocol == "udp")
-                udp_reply(&args);
+                udp_reply(&args, refMessageID, MessageContent);
             else
                 tcp_reply(&args);
         }
-        else if(tokens[0] == "/msg") {
+        else if(tokens[0] == "/msg" && tokens.size() == 3) {
             if(args.protocol == "udp")
-                udp_msg(&args);
+                udp_msg(&args, MessageContent);
             else
                 tcp_msg(&args);
         }
-        else if(tokens[0] == "/err") {
+        else if(tokens[0] == "/err" && tokens.size() == 3) {
             if(args.protocol == "udp")
-                udp_err(&args);
+                udp_err(&args, MessageContent);
             else
                 tcp_err(&args);
         }
-        else if(tokens[0] == "/bye") {
+        else if(tokens[0] == "/bye" && tokens.size() == 2) {
             if(args.protocol == "udp")
                 udp_bye(&args);\
             else
                 tcp_bye(&args);
         }
-        else if(tokens[0] == "/ping") {
+        else if(tokens[0] == "/ping" && tokens.size() == 1) {
             if(args.protocol == "udp")
                 udp_ping(&args);
             else
                 tcp_ping(&args);
+        }
+        else if(tokens[0] == "/rename" && tokens.size() == 2) {
+            args.displayName = tokens[1];
+            if(!isPrintableChar(args.displayName)) {
+                exit(1); //TODO exit code? nebo error message a nic?
+            }
         }
         else {
             printf("non-existent command");//TODO chybny command

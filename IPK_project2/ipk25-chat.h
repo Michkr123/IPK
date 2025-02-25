@@ -11,7 +11,6 @@
 struct ProgramArgs {
     std::string protocol;
     std::string hostname;
-    std::string command;
     std::string username;
     std::string secret;
     std::string displayName;
