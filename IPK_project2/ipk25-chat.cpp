@@ -75,16 +75,16 @@ int auth(ProgramArgs &args) {
                 args.username = tokens[1];
                 args.secret = tokens[2];
                 args.displayName = tokens[3];
-                if (isValidString(args.username) && isValidString(args.secret) && isPrintableChar(args.displayName)) //TODO check if the checks are correct
-                return 0;
+                if (isValidString(args.username) && isValidString(args.secret) && isPrintableChar(args.displayName)) { //TODO check if the checks are correct
+                    if(args.protocol == "udp")
+                        udp_auth(&args);
+                    // else
+                    //     tcp_auth(args);
+                    return 0;
+                }
             }
         }
     }
-
-    if(args.protocol == "udp")
-        udp_auth(&args);
-    // else
-    //     tcp_auth(args);
 }
 
 int main(int argc, char *argv[]) {
@@ -108,11 +108,16 @@ int main(int argc, char *argv[]) {
     //TODO check if prot is TCP or UDP and other things!
 
     auth(args); // authentication
-    std::cout << "auth succesfull." << std::endl;
+    //std::cout << "auth succesfull." << std::endl;
 
     std::string MessageContent;
     uint16_t refMessageID;
     bool exit_flag = false;
+    pid_t pid = fork();
+    if(pid == 0) {
+        udp_listen(&args, &exit_flag);
+        exit(0);
+    }
     while (!exit_flag) {
         std::string input;
         std::getline(std::cin, input);
@@ -143,7 +148,7 @@ int main(int argc, char *argv[]) {
             else
                 tcp_err(&args);
         }
-        else if(tokens[0] == "/bye" && tokens.size() == 2) {
+        else if(tokens[0] == "/bye" && tokens.size() == 1) {
             if(args.protocol == "udp")
                 udp_bye(&args);\
             else
