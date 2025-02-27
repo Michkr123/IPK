@@ -105,19 +105,20 @@ int main(int argc, char *argv[]) {
         exit(1); //TODO exit message + code
     }
 
-    //TODO check if prot is TCP or UDP and other things!
-
-    auth(args); // authentication
-    //std::cout << "auth succesfull." << std::endl;
+    //TODO check if protocol is TCP or UDP and other things!
 
     std::string MessageContent;
     uint16_t refMessageID;
     bool exit_flag = false;
+
     pid_t pid = fork();
     if(pid == 0) {
         udp_listen(&args, &exit_flag);
         exit(0);
     }
+    
+    auth(args); // authentication
+
     while (!exit_flag) {
         std::string input;
         std::getline(std::cin, input);

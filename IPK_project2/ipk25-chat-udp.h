@@ -10,7 +10,7 @@
 #include <cstring>
 #include "ipk25-chat.h"
 
-struct UDPHeader {
+struct UDPHeader { //TODO toto vubec nepouzivam lol
     uint16_t source_port;
     uint16_t destination_port;
     uint16_t length;
