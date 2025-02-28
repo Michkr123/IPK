@@ -106,6 +106,24 @@ int main(int argc, char *argv[]) {
     }
 
     //TODO check if protocol is TCP or UDP and other things!
+    if (args.protocol == "udp") {
+        args.sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    } else if (args.protocol == "tcp") {
+        args.sockfd = socket(AF_INET, SOCK_STREAM, 0); 
+    } else {
+        std::cerr << "Invalid protocol!" << std::endl;
+        return 1;
+    }
+
+    if (args.sockfd == -1) {
+        std::cerr << "Socket creation failed!" << std::endl;
+        return 1;
+    }
+
+    sockaddr_in server_addr;
+    server_addr.sin_family = AF_INET;
+    server_addr.sin_port = htons(args.port);
+    inet_pton(AF_INET, args.hostname.c_str(), &server_addr.sin_addr);
 
     std::string MessageContent;
     uint16_t refMessageID;
@@ -131,19 +149,21 @@ int main(int argc, char *argv[]) {
             else
                 tcp_join(&args);
         }
-        else if(tokens[0] == "/reply" && tokens.size() == 3) {
-            if(args.protocol == "udp")
-                udp_reply(&args, refMessageID, MessageContent);
-            else
-                tcp_reply(&args);
-        }
-        else if(tokens[0] == "/msg" && tokens.size() == 3) {
-            if(args.protocol == "udp")
-                udp_msg(&args, MessageContent);
-            else
-                tcp_msg(&args);
-        }
+        // else if(tokens[0] == "/reply" && tokens.size() == 3) {
+        //     if(args.protocol == "udp")
+        //         udp_reply(&args, refMessageID, MessageContent);
+        //     else
+        //         tcp_reply(&args);
+        // }
+        // else if(tokens[0] == "/msg" && tokens.size() == 3) {
+        //     MessageContent = tokens[2];
+        //     if(args.protocol == "udp")
+        //         udp_msg(&args, MessageContent);
+        //     else
+        //         tcp_msg(&args);
+        // }
         else if(tokens[0] == "/err" && tokens.size() == 3) {
+            MessageContent = tokens[2];
             if(args.protocol == "udp")
                 udp_err(&args, MessageContent);
             else
@@ -167,8 +187,15 @@ int main(int argc, char *argv[]) {
                 exit(1); //TODO exit code? nebo error message a nic?
             }
         }
+        else if(tokens[0][0] != '/') {
+            MessageContent = input;
+            if(args.protocol == "udp")
+                udp_msg(&args, MessageContent);
+            else
+                tcp_msg(&args);
+        }
         else {
-            printf("non-existent command");//TODO chybny command
+            printf("non-existent command"); //TODO chybny command
         }
     }
 

@@ -19,6 +19,8 @@ struct ProgramArgs {
     uint16_t timeout = 250;
     uint16_t messageID = 0;
     uint8_t retry_count = 3;
+
+    uint32_t sockfd;
 };
 
 #endif // MAIN_H

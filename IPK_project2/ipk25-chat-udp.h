@@ -10,17 +10,6 @@
 #include <cstring>
 #include "ipk25-chat.h"
 
-struct UDPHeader { //TODO toto vubec nepouzivam lol
-    uint16_t source_port;
-    uint16_t destination_port;
-    uint16_t length;
-    uint16_t checksum;
-
-    UDPHeader(uint16_t srcPort, uint16_t destPort, uint16_t len, uint16_t chksum)
-        : source_port(htons(srcPort)), destination_port(htons(destPort)), 
-          length(htons(len)), checksum(htons(chksum)) {}
-};
-
 #pragma pack(push, 1) //TODO delete? no padding when inserting
 struct MessageHeader {
     uint8_t type;

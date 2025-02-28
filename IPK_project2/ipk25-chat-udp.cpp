@@ -14,26 +14,10 @@ void print_buffer(const std::vector<uint8_t> &buffer) {
 //TODO debug - delete
 
 bool receive_UDP(ProgramArgs *args) {
-    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sockfd < 0) {
-        std::cerr << "Error creating socket\n";
-        return false;
-    }
-
+    int sockfd = args->sockfd;
     struct sockaddr_in server_addr;
     socklen_t addr_len = sizeof(server_addr);
     char buffer[1024];
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(args->port);
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-
-    if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        std::cerr << "Error binding receive socket\n";
-        close(sockfd);
-        return false;
-    }
 
     fd_set readfds;
     struct timeval tv;
@@ -59,68 +43,62 @@ bool receive_UDP(ProgramArgs *args) {
                     return true;
                 }
                 else {
-                    attempt--; //TODO zachytili jsme zpravu, ale je jineho typu
+                    attempt--; // Handle message type mismatch
                 }
             }
         } else if (ret == 0) {
             std::cerr << "Timeout, retrying...\n";
         } else {
             std::cerr << "Error in select()\n";
-            close(sockfd);
             return false;
         }
     }
 
-    close(sockfd);
     return false;
 }
 
 void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
-    int sockfd;
-    struct sockaddr_in serverAddr;
+    int sockfd = args->sockfd;
+    struct sockaddr_storage serverAddr;  // Generic struct for IPv4 & IPv6
+    socklen_t addrLen;
+
     struct addrinfo hints, *res;
     
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        perror("Error creating socket");
-        exit(1);
-    }
-
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_INET;
+    hints.ai_family = AF_UNSPEC;  // Allow both IPv4 and IPv6
     hints.ai_socktype = SOCK_DGRAM;
 
     if (getaddrinfo(args->hostname.c_str(), nullptr, &hints, &res) != 0) {
         std::cerr << "Error: No such host found" << std::endl;
-        close(sockfd);
-        exit(EXIT_FAILURE);
+        return;
     }
 
-    memset(&serverAddr, 0, sizeof(serverAddr));
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(args->port);
-    memcpy(&serverAddr.sin_addr, &((struct sockaddr_in*)res->ai_addr)->sin_addr, sizeof(serverAddr.sin_addr));
+    if (res->ai_family == AF_INET) {
+        struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
+        memcpy(&serverAddr, ipv4, sizeof(struct sockaddr_in));
+        ((struct sockaddr_in*)&serverAddr)->sin_port = htons(args->port);
+        addrLen = sizeof(struct sockaddr_in);
+    } else if (res->ai_family == AF_INET6) {
+        struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)res->ai_addr;
+        memcpy(&serverAddr, ipv6, sizeof(struct sockaddr_in6));
+        ((struct sockaddr_in6*)&serverAddr)->sin6_port = htons(args->port);
+        addrLen = sizeof(struct sockaddr_in6);
+    } else {
+        std::cerr << "Error: Unsupported address family" << std::endl;
+        freeaddrinfo(res);
+        return;
+    }
 
     freeaddrinfo(res);
 
     ssize_t sentBytes = sendto(sockfd, buffer.data(), buffer.size(), 0,
-                               (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+                               (struct sockaddr*)&serverAddr, addrLen);
     if (sentBytes < 0) {
         perror("Error sending UDP packet");
     }
 
-    if(buffer[0] != 0x00) {
-        if(!receive_UDP(args)) {
-            std::cerr << "No response received." << std::endl; //TODO asi done - zobrazit chybu a ukonceni aplikace s error code
-            //exit(1);
-        }
-
-        //TODO sprava poslana a prijato potvrzeni -> vse v poradku
-        args->messageID++;
-    }
-
-    close(sockfd);
+    args->messageID++;
 }
-
 
 void udp_confirm(ProgramArgs *args, uint16_t refMessageID) {
     uint8_t type = 0x00;
@@ -269,80 +247,73 @@ void udp_ping(ProgramArgs *args) {
 }
 
 void udp_listen(ProgramArgs *args, bool *exit_flag) {
-    int sockfd;
-    struct sockaddr_in server_addr, client_addr;
+    struct sockaddr_in client_addr;
     socklen_t addr_len = sizeof(client_addr);
     uint8_t buffer[1024];
-
-    if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
-        std::cerr << "Error: Cannot create UDP socket\n";
-        return;
-    }
-
-    memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(args->port);
-
-    struct addrinfo hints{}, *res;
-    hints.ai_family = AF_INET;
-    hints.ai_socktype = SOCK_DGRAM;
-    hints.ai_flags = AI_PASSIVE;
-
-    if (getaddrinfo(args->hostname.c_str(), NULL, &hints, &res) != 0) {
-        std::cerr << "Error resolving hostname: " << args->hostname << std::endl;
-        close(sockfd);
-        return;
-    }
-
-    struct sockaddr_in *addr_in = (struct sockaddr_in *)res->ai_addr;
-    server_addr.sin_addr = addr_in->sin_addr; 
-
-    freeaddrinfo(res);
-
-    if (bind(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        std::cerr << "Error: Cannot bind UDP socket\n";
-        close(sockfd);
-        return;
-    }
 
     std::cout << "UDP Listener started on port " << args->port << "\n";
 
     while (!(*exit_flag)) {
-        ssize_t recv_len = recvfrom(sockfd, buffer, sizeof(buffer) - 1, 0, 
+        ssize_t recv_len = recvfrom(args->sockfd, buffer, sizeof(buffer) - 1, 0, 
                                     (struct sockaddr *)&client_addr, &addr_len);
                                     
         if (recv_len > 0 && buffer[0] != 0x00) {
             uint8_t type = buffer[0];
             uint16_t MessageID = ntohs(*(uint16_t *)(buffer + 1));
 
-            //TODO switch for recieved message
             switch(type) {
-                case 0x01: //TODO REPLY
-                    std::cout << "reply recieved" << std::endl;
+                case 0x01: { // TODO REPLY
+                    uint8_t result = buffer[3];
+                    uint16_t refMessageID = ntohs(*(uint16_t *)(buffer + 4));
+
+                    char* ptr = (char*)(buffer + 6);
+                    std::string messageContent(ptr);
+                
+                    std::cout << "Action " << (result ? "Success: " : "Failure: ") << messageContent << std::endl;
+                
+                    udp_confirm(args, MessageID);
                     break;
-                case 0x04: //TODO MSG
-                    std::cout << "msg recieved" << std::endl;
+                }
+                case 0x04: { // TODO MSG
+                    char* ptr = (char*)(buffer + 3);
+                    std::string displayName(ptr);
+
+                    ptr += displayName.size() + 1;
+                    std::string messageContents(ptr);
+                
+                    std::cout << displayName << ": " << messageContents << std::endl;
+                
+                    udp_confirm(args, MessageID);
                     break;
-                case 0xFE: //TODO ERR
-                    std::cout << "err recieved" << std::endl;
+                }
+                case 0xFE: { // TODO ERR
+                    char* ptr = (char*)(buffer + 3);
+                    std::string displayName(ptr);
+
+                    ptr += displayName.size() + 1;
+                    std::string messageContents(ptr);
+                
+                    std::cout << "ERROR FROM " << displayName << ": " << messageContents << std::endl;
+                
+                    udp_confirm(args, MessageID);
                     break;
-                case 0xFF: //TODO BYE
-                    std::cout << "bye recieved" << std::endl;
+                }
+                case 0xFF: { // TODO BYE
+                    std::cout << "Bye received" << std::endl;
+                    udp_confirm(args, MessageID);
                     break;
-                case 0x00:
-                    std::cout << "Confirm recieved" << std::endl;
-                default: // no other type should be recieved
-                    //exit(1);
+                }
+                case 0x00: { // TODO Confirm
+                    std::cout << "Confirm received" << std::endl;
+                    break;
+                }
+                default:
                     break;
             }
-
-            udp_confirm(args, MessageID);
-
         } else if (recv_len < 0) {
             std::cerr << "Error receiving UDP message\n";
         }
     }
 
     std::cout << "UDP Listener shutting down...\n";
-    close(sockfd);
 }
