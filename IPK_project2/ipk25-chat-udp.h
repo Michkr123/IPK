@@ -10,15 +10,18 @@
 #include <cstring>
 #include "ipk25-chat.h"
 
-#pragma pack(push, 1) //TODO delete? no padding when inserting
+#pragma pack(push, 1)
 struct MessageHeader {
     uint8_t type;
     uint16_t MessageID;
     MessageHeader(uint8_t type, uint16_t MessageID)
-    : type(type), MessageID(htons(MessageID)) {}
+    : type(type), MessageID(MessageID) {}
+
+    void toNetworkByteOrder() {
+        MessageID = htons(MessageID);
+    }
 };
 
-void udp_reply(ProgramArgs *args, uint16_t refMessageID, std::string MessageContent);
 void udp_auth(ProgramArgs *arg);
 void udp_join(ProgramArgs *args, std::string channelID);
 void udp_msg(ProgramArgs *args, std::string MessageContent);

@@ -1,26 +1,101 @@
 #include "ipk25-chat-tcp.h"
 #include <iostream>
 
-void tcp_join(ProgramArgs *args) {
-    std::cout << "Join tcp" << std::endl;
+void tcp_send(ProgramArgs *args, const char *message) {
+    ssize_t bytes_sent = send(args->sockfd, message, strlen(message), 0);
+    if (bytes_sent < 0) {
+        std::cerr << "Error: Could not send message\n";
+        close(args->sockfd);
+        exit(1);
+    }
 }
 
-void tcp_reply(ProgramArgs *args) {
-    std::cout << "Reply tcp" << std::endl;
+void tcp_listen(ProgramArgs *args, bool *exit_flag) {
+    char buffer[1024];
+    std::string message_buffer;
+
+    while (!(*exit_flag)) {
+        ssize_t bytes_received = recv(args->sockfd, buffer, sizeof(buffer) - 1, 0);
+
+        if (bytes_received < 0) {
+            std::cerr << "Error: Could not receive message\n";
+            break;
+        } else if (bytes_received == 0) {
+            std::cerr << "Server closed the connection\n";
+            break;
+        }
+
+        buffer[bytes_received] = '\0';
+        message_buffer += buffer;
+        
+        size_t pos;
+        while ((pos = message_buffer.find("\r\n")) != std::string::npos) {
+            std::string message = message_buffer.substr(0, pos);
+            message_buffer.erase(0, pos + 2);
+
+            std::istringstream iss(message);
+            std::string command;
+            iss >> command;
+
+            if (command == "REPLY") {
+                std::string result, is, content;
+                iss >> result >> is;
+                std::getline(iss, content);
+                if (result == "OK") {
+                    std::cout << "Success: " << content << std::endl;
+                } else {
+                    std::cout << "Failure: " << content << std::endl;
+                }
+            } 
+            else if (command == "MSG") {
+                std::string from, displayName, is, content;
+                iss >> from >> displayName >> is;
+                std::getline(iss, content);
+                std::cout << displayName << ": " << content << std::endl;
+            } 
+            else if (command == "ERR") {
+                std::string from, displayName, is, content;
+                iss >> from >> displayName >> is;
+                std::getline(iss, content);
+                std::cerr << "Error from " << displayName << ": " << content << std::endl;
+            } 
+            else if (command == "BYE") {
+                std::string from, displayName;
+                iss >> from >> displayName;
+                std::cout << "Server ended the session from " << displayName << ".\n";
+                *exit_flag = true;
+                break;
+            } 
+            else {
+                std::cout << "Unknown message: " << message << std::endl;
+            }
+        }
+    }
+
+    close(args->sockfd);
 }
 
-void tcp_msg(ProgramArgs *args) {
-    std::cout << "Message tcp" << std::endl;
+void tcp_auth(ProgramArgs *args) {
+    std::string message = "AUTH " + args->username + " AS " + args->displayName + " USING " + args->secret + "\r\n";
+    tcp_send(args, message.c_str());
 }
 
-void tcp_err(ProgramArgs *args) {
-    std::cout << "Error tcp" << std::endl;
+void tcp_join(ProgramArgs *args, std::string channelID) {
+    std::string message = "JOIN " + channelID + " AS " + args->displayName + "\r\n";
+    tcp_send(args, message.c_str());
+}
+
+void tcp_msg(ProgramArgs *args, std::string messageContent) {
+    std::string message = "MSG FROM " + args->displayName + " IS " + messageContent + "\r\n";
+    tcp_send(args, message.c_str());
+}
+
+void tcp_err(ProgramArgs *args, std::string messageContent) {
+    std::string message = "ERR FROM " + args->displayName + " IS " + messageContent + "\r\n";
+    tcp_send(args, message.c_str());
 }
 
 void tcp_bye(ProgramArgs *args) {
-    std::cout << "Bye tcp" << std::endl;
-}
-
-void tcp_ping(ProgramArgs *args) {
-    std::cout << "Ping tcp" << std::endl;
+    std::string message = "BYE FROM " + args->displayName + "\r\n";
+    tcp_send(args, message.c_str());
 }

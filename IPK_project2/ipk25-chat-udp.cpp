@@ -11,6 +11,14 @@ void print_buffer(const std::vector<uint8_t> &buffer) {
     }
     std::cout << std::dec << std::endl;
 }
+
+void print_raw_buffer(const uint8_t* buffer, size_t length) {
+    std::cout << "Buffer (" << length << " bytes): ";
+    for (size_t i = 0; i < length; i++) {
+        std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)buffer[i] << " ";
+    }
+    std::cout << std::dec << std::endl;
+}
 //TODO debug - delete
 
 bool receive_UDP(ProgramArgs *args) {
@@ -59,40 +67,15 @@ bool receive_UDP(ProgramArgs *args) {
 
 void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
     int sockfd = args->sockfd;
-    struct sockaddr_storage serverAddr;  // Generic struct for IPv4 & IPv6
-    socklen_t addrLen;
+    struct sockaddr_in serverAddr;
+    memset(&serverAddr, 0, sizeof(serverAddr));
 
-    struct addrinfo hints, *res;
-    
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;  // Allow both IPv4 and IPv6
-    hints.ai_socktype = SOCK_DGRAM;
-
-    if (getaddrinfo(args->hostname.c_str(), nullptr, &hints, &res) != 0) {
-        std::cerr << "Error: No such host found" << std::endl;
-        return;
-    }
-
-    if (res->ai_family == AF_INET) {
-        struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
-        memcpy(&serverAddr, ipv4, sizeof(struct sockaddr_in));
-        ((struct sockaddr_in*)&serverAddr)->sin_port = htons(args->port);
-        addrLen = sizeof(struct sockaddr_in);
-    } else if (res->ai_family == AF_INET6) {
-        struct sockaddr_in6 *ipv6 = (struct sockaddr_in6 *)res->ai_addr;
-        memcpy(&serverAddr, ipv6, sizeof(struct sockaddr_in6));
-        ((struct sockaddr_in6*)&serverAddr)->sin6_port = htons(args->port);
-        addrLen = sizeof(struct sockaddr_in6);
-    } else {
-        std::cerr << "Error: Unsupported address family" << std::endl;
-        freeaddrinfo(res);
-        return;
-    }
-
-    freeaddrinfo(res);
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_addr = args->serverAddr.sin_addr;
+    serverAddr.sin_port = htons(args->port);
 
     ssize_t sentBytes = sendto(sockfd, buffer.data(), buffer.size(), 0,
-                               (struct sockaddr*)&serverAddr, addrLen);
+                               (struct sockaddr*)&serverAddr, sizeof(serverAddr));
     if (sentBytes < 0) {
         perror("Error sending UDP packet");
     }
@@ -103,6 +86,7 @@ void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
 void udp_confirm(ProgramArgs *args, uint16_t refMessageID) {
     uint8_t type = 0x00;
     MessageHeader msgHeader(type, refMessageID);
+    msgHeader.toNetworkByteOrder();
 
     std::vector<uint8_t> buffer;
 
@@ -111,29 +95,6 @@ void udp_confirm(ProgramArgs *args, uint16_t refMessageID) {
 
     print_buffer(buffer); //TODO debug
     send_UDP(args, buffer);
-}
-
-void udp_reply(ProgramArgs *args, uint16_t refMessageID, std::string MessageContent) {
-//     uint8_t type = 0x01;
-//     MessageHeader msgHeader(type, args->messageID);
-
-//     std::vector<uint8_t> buffer;
-
-//     buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&msgHeader), 
-//                   reinterpret_cast<uint8_t*>(&msgHeader) + sizeof(msgHeader));
-
-//     //TODO 1 byte result
-//     uint8_t result = 0x01;  //TODO RESULT!
-//     buffer.push_back(result);
-
-//     buffer.push_back(static_cast<uint8_t>(refMessageID >> 8));
-//     buffer.push_back(static_cast<uint8_t>(refMessageID & 0xFF));
-
-//     buffer.insert(buffer.end(), MessageContent.begin(), MessageContent.end());
-//     buffer.push_back('\0');
-
-//     print_buffer(buffer); //TODO debug
-//     send_UDP(args, buffer);
 }
 
 void udp_auth(ProgramArgs *args) {
@@ -256,54 +217,53 @@ void udp_listen(ProgramArgs *args, bool *exit_flag) {
     while (!(*exit_flag)) {
         ssize_t recv_len = recvfrom(args->sockfd, buffer, sizeof(buffer) - 1, 0, 
                                     (struct sockaddr *)&client_addr, &addr_len);
-                                    
-        if (recv_len > 0 && buffer[0] != 0x00) {
+        if (recv_len > 0) {
+            buffer[recv_len] = '\0'; // Ensure null termination
+
             uint8_t type = buffer[0];
             uint16_t MessageID = ntohs(*(uint16_t *)(buffer + 1));
 
-            switch(type) {
-                case 0x01: { // TODO REPLY
+            switch (type) {
+                case 0x01: { // Reply
                     uint8_t result = buffer[3];
-                    uint16_t refMessageID = ntohs(*(uint16_t *)(buffer + 4));
+                    //uint16_t refMessageID = ntohs(*(uint16_t *)(buffer + 4));
 
-                    char* ptr = (char*)(buffer + 6);
+                    char* ptr = reinterpret_cast<char*>(buffer + 6);
                     std::string messageContent(ptr);
-                
+
                     std::cout << "Action " << (result ? "Success: " : "Failure: ") << messageContent << std::endl;
-                
+                    print_raw_buffer(buffer, recv_len);
                     udp_confirm(args, MessageID);
                     break;
                 }
-                case 0x04: { // TODO MSG
-                    char* ptr = (char*)(buffer + 3);
+                case 0x04: { // Message
+                    char* ptr = reinterpret_cast<char*>(buffer + 3);
                     std::string displayName(ptr);
-
                     ptr += displayName.size() + 1;
+
                     std::string messageContents(ptr);
-                
                     std::cout << displayName << ": " << messageContents << std::endl;
-                
-                    udp_confirm(args, MessageID);
-                    break;
-                }
-                case 0xFE: { // TODO ERR
-                    char* ptr = (char*)(buffer + 3);
-                    std::string displayName(ptr);
 
-                    ptr += displayName.size() + 1;
-                    std::string messageContents(ptr);
-                
-                    std::cout << "ERROR FROM " << displayName << ": " << messageContents << std::endl;
-                
                     udp_confirm(args, MessageID);
                     break;
                 }
-                case 0xFF: { // TODO BYE
+                case 0xFE: { // Error
+                    char* ptr = reinterpret_cast<char*>(buffer + 3);
+                    std::string displayName(ptr);
+                    ptr += displayName.size() + 1;
+
+                    std::string messageContents(ptr);
+                    std::cout << "ERROR FROM " << displayName << ": " << messageContents << std::endl;
+
+                    udp_confirm(args, MessageID);
+                    break;
+                }
+                case 0xFF: { // Bye
                     std::cout << "Bye received" << std::endl;
                     udp_confirm(args, MessageID);
                     break;
                 }
-                case 0x00: { // TODO Confirm
+                case 0x00: { // Confirmation
                     std::cout << "Confirm received" << std::endl;
                     break;
                 }

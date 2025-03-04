@@ -63,6 +63,25 @@ bool isPrintableChar(const std::string &str) {
     return true;
 }
 
+void resolve_hostname(ProgramArgs *args) {
+    struct addrinfo hints, *res;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+
+    if (getaddrinfo(args->hostname.c_str(), nullptr, &hints, &res) != 0) {
+        std::cerr << "Error: No such host found" << std::endl;
+        exit(1); 
+    }
+
+    struct sockaddr_in *ipv4 = (struct sockaddr_in *)res->ai_addr;
+    args->serverAddr.sin_family = AF_INET;
+    args->serverAddr.sin_addr = ipv4->sin_addr;
+    args->serverAddr.sin_port = htons(args->port);
+
+    freeaddrinfo(res);
+}
+
 int auth(ProgramArgs &args) {
     while (true) {
         std::string input;
@@ -75,12 +94,12 @@ int auth(ProgramArgs &args) {
                 args.username = tokens[1];
                 args.secret = tokens[2];
                 args.displayName = tokens[3];
-                if (isValidString(args.username) && isValidString(args.secret) && isPrintableChar(args.displayName)) { //TODO check if the checks are correct
+                if (isValidString(args.username) && isValidString(args.secret) && isPrintableChar(args.displayName)) { 
                     if(args.protocol == "udp")
                         udp_auth(&args);
-                    // else
-                    //     tcp_auth(args);
-                    return 0;
+                    else
+                        tcp_auth(&args);
+                    return 0; 
                 }
             }
         }
@@ -95,21 +114,22 @@ int main(int argc, char *argv[]) {
     ProgramArgs args;
     parse_arguments(argc, argv, args);
 
-    //TODO resolve hostname
-
-    if((args.protocol).empty()) {  // missing protocol
-        exit(1); //TODO exit message + code
+    if((args.hostname).empty()) {  
+        std::cerr << "Error: Hostname is missing!" << std::endl;
+        exit(1);
     }
 
-    if((args.hostname).empty()) {  // missing hostname / IP
-        exit(1); //TODO exit message + code
+    resolve_hostname(&args);
+
+    if((args.protocol).empty()) {
+        std::cerr << "Error: Protocol is missing!" << std::endl;
+        exit(1);
     }
 
-    //TODO check if protocol is TCP or UDP and other things!
     if (args.protocol == "udp") {
         args.sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     } else if (args.protocol == "tcp") {
-        args.sockfd = socket(AF_INET, SOCK_STREAM, 0); 
+        args.sockfd = socket(AF_INET, SOCK_STREAM, 0);
     } else {
         std::cerr << "Invalid protocol!" << std::endl;
         return 1;
@@ -120,21 +140,25 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    sockaddr_in server_addr;
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(args.port);
-    inet_pton(AF_INET, args.hostname.c_str(), &server_addr.sin_addr);
-
     std::string MessageContent;
-    uint16_t refMessageID;
     bool exit_flag = false;
 
-    pid_t pid = fork();
-    if(pid == 0) {
-        udp_listen(&args, &exit_flag);
-        exit(0);
+    if(args.protocol == "tcp") {
+        if (connect(args.sockfd, (struct sockaddr*)&args.serverAddr, sizeof(args.serverAddr)) < 0) {
+            std::cerr << "Connection failed!" << std::endl;
+            return 1;
+        }
     }
     
+    pid_t pid = fork();
+    if(pid == 0) {
+        if(args.protocol == "tcp")
+            tcp_listen(&args, &exit_flag);
+        else
+            udp_listen(&args, &exit_flag);
+        exit(0);
+    }
+
     auth(args); // authentication
 
     while (!exit_flag) {
@@ -147,27 +171,14 @@ int main(int argc, char *argv[]) {
             if(args.protocol == "udp")
                 udp_join(&args, MessageContent);
             else
-                tcp_join(&args);
+                tcp_join(&args, MessageContent);
         }
-        // else if(tokens[0] == "/reply" && tokens.size() == 3) {
-        //     if(args.protocol == "udp")
-        //         udp_reply(&args, refMessageID, MessageContent);
-        //     else
-        //         tcp_reply(&args);
-        // }
-        // else if(tokens[0] == "/msg" && tokens.size() == 3) {
-        //     MessageContent = tokens[2];
-        //     if(args.protocol == "udp")
-        //         udp_msg(&args, MessageContent);
-        //     else
-        //         tcp_msg(&args);
-        // }
         else if(tokens[0] == "/err" && tokens.size() == 3) {
             MessageContent = tokens[2];
             if(args.protocol == "udp")
                 udp_err(&args, MessageContent);
             else
-                tcp_err(&args);
+                tcp_err(&args, MessageContent);
         }
         else if(tokens[0] == "/bye" && tokens.size() == 1) {
             if(args.protocol == "udp")
@@ -179,12 +190,25 @@ int main(int argc, char *argv[]) {
             if(args.protocol == "udp")
                 udp_ping(&args);
             else
-                tcp_ping(&args);
+                // tcp_ping(&args);
+                std::cout << "non-existent command" << std::endl;
         }
         else if(tokens[0] == "/rename" && tokens.size() == 2) {
             args.displayName = tokens[1];
             if(!isPrintableChar(args.displayName)) {
-                exit(1); //TODO exit code? nebo error message a nic?
+                exit(1); 
+            }
+        }
+        else if(tokens[0] == "/auth" && tokens.size() == 3) {
+            args.username = tokens[1];
+            args.secret = tokens[2];
+            args.displayName = tokens[3];
+            if (isValidString(args.username) && isValidString(args.secret) && isPrintableChar(args.displayName)) { 
+                if(args.protocol == "udp")
+                    udp_auth(&args);
+                else
+                    tcp_auth(&args);
+                return 0; 
             }
         }
         else if(tokens[0][0] != '/') {
@@ -192,10 +216,10 @@ int main(int argc, char *argv[]) {
             if(args.protocol == "udp")
                 udp_msg(&args, MessageContent);
             else
-                tcp_msg(&args);
+                tcp_msg(&args, MessageContent);
         }
         else {
-            printf("non-existent command"); //TODO chybny command
+            std::cout << "non-existent command" << std::endl;
         }
     }
 

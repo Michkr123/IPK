@@ -6,6 +6,7 @@
 #include <vector>
 #include <sstream>
 #include <getopt.h>
+#include <netinet/in.h>
 #include <cstdint>
 
 struct ProgramArgs {
@@ -20,7 +21,8 @@ struct ProgramArgs {
     uint16_t messageID = 0;
     uint8_t retry_count = 3;
 
-    uint32_t sockfd;
+    int32_t sockfd;
+    sockaddr_in serverAddr;
 };
 
 #endif // MAIN_H
