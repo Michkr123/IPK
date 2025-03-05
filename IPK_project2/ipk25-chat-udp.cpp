@@ -21,66 +21,39 @@ void print_raw_buffer(const uint8_t* buffer, size_t length) {
 }
 //TODO debug - delete
 
-bool receive_UDP(ProgramArgs *args) {
-    int sockfd = args->sockfd;
-    struct sockaddr_in server_addr;
-    socklen_t addr_len = sizeof(server_addr);
-    char buffer[1024];
-
-    fd_set readfds;
-    struct timeval tv;
-
-    for (uint8_t attempt = 0; attempt < args->retry_count; attempt++) {
-        FD_ZERO(&readfds);
-        FD_SET(sockfd, &readfds);
-        tv.tv_sec = args->timeout / 1000;
-        tv.tv_usec = (args->timeout % 1000) * 1000;
-
-        int ret = select(sockfd + 1, &readfds, NULL, NULL, &tv);
-        if (ret > 0) {
-            ssize_t recv_len = recvfrom(sockfd, buffer, sizeof(buffer) - 1, 0,
-                                        (struct sockaddr *)&server_addr, &addr_len);
-            if (recv_len > 0) {
-                if ((recv_len == 3) && 
-                    buffer[0] == 0x00 && 
-                    buffer[1] == (args->messageID >> 8) &&
-                    buffer[2] == (args->messageID & 0xFF)) {
-
-                    std::cout << "Received confirmation: type = 0x00, refMessageID = " 
-                              << std::hex << (int)buffer[1] << (int)buffer[2] << std::dec << "\n";
-                    return true;
-                }
-                else {
-                    attempt--; // Handle message type mismatch
-                }
-            }
-        } else if (ret == 0) {
-            std::cerr << "Timeout, retrying...\n";
-        } else {
-            std::cerr << "Error in select()\n";
-            return false;
-        }
-    }
-
-    return false;
-}
-
 void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
-    int sockfd = args->sockfd;
-    struct sockaddr_in serverAddr;
-    memset(&serverAddr, 0, sizeof(serverAddr));
+    for(int i = 0; i < args->retry_count; i++) {
+        int sockfd = args->sockfd;
+        struct sockaddr_in serverAddr;
+        memset(&serverAddr, 0, sizeof(serverAddr));
 
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr = args->serverAddr.sin_addr;
-    serverAddr.sin_port = htons(args->port);
+        serverAddr.sin_family = AF_INET;
+        serverAddr.sin_addr = args->serverAddr.sin_addr;
+        serverAddr.sin_port = htons(args->port);
 
-    ssize_t sentBytes = sendto(sockfd, buffer.data(), buffer.size(), 0,
-                               (struct sockaddr*)&serverAddr, sizeof(serverAddr));
-    if (sentBytes < 0) {
-        perror("Error sending UDP packet");
-    }
+        ssize_t sentBytes = sendto(sockfd, buffer.data(), buffer.size(), 0,
+                                (struct sockaddr*)&serverAddr, sizeof(serverAddr));
+        if (sentBytes < 0) {
+            perror("Error sending UDP packet");
+        }
 
-    args->messageID++;
+        if(buffer[0] != 0x00) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(args->timeout));
+
+            if (std::find(args->seenMessagesID.begin(), args->seenMessagesID.end(), args->messageID) != args->seenMessagesID.end()) {
+                std::cout << "Message " << args->messageID << " confirmed! Stopping retries." << std::endl;
+                i = args->retry_count;
+            } else {
+                std::cout << "Message " << args->messageID << " not confirmed yet." << std::endl;
+            }
+        }
+        else {
+            return;
+        }
+        args->messageID++;
+    }        
+
+    //args->messageID++;
 }
 
 void udp_confirm(ProgramArgs *args, uint16_t refMessageID) {
@@ -207,14 +180,16 @@ void udp_ping(ProgramArgs *args) {
     send_UDP(args, buffer);
 }
 
-void udp_listen(ProgramArgs *args, bool *exit_flag) {
+void* udp_listen(void* arg) {
+    ProgramArgs* args = static_cast<ProgramArgs*>(arg);
     struct sockaddr_in client_addr;
+    client_addr.sin_addr.s_addr = INADDR_ANY; 
     socklen_t addr_len = sizeof(client_addr);
     uint8_t buffer[1024];
 
     std::cout << "UDP Listener started on port " << args->port << "\n";
 
-    while (!(*exit_flag)) {
+    while (!(args->exit_flag)) {
         ssize_t recv_len = recvfrom(args->sockfd, buffer, sizeof(buffer) - 1, 0, 
                                     (struct sockaddr *)&client_addr, &addr_len);
         if (recv_len > 0) {
@@ -226,13 +201,16 @@ void udp_listen(ProgramArgs *args, bool *exit_flag) {
             switch (type) {
                 case 0x01: { // Reply
                     uint8_t result = buffer[3];
-                    //uint16_t refMessageID = ntohs(*(uint16_t *)(buffer + 4));
 
                     char* ptr = reinterpret_cast<char*>(buffer + 6);
                     std::string messageContent(ptr);
+                    
+                    args->serverAddr.sin_port = ntohs(client_addr.sin_port); //TODO fix port switching
 
                     std::cout << "Action " << (result ? "Success: " : "Failure: ") << messageContent << std::endl;
-                    print_raw_buffer(buffer, recv_len);
+                    if(result) {
+                        args->state = "open";
+                    }
                     udp_confirm(args, MessageID);
                     break;
                 }
@@ -264,7 +242,10 @@ void udp_listen(ProgramArgs *args, bool *exit_flag) {
                     break;
                 }
                 case 0x00: { // Confirmation
-                    std::cout << "Confirm received" << std::endl;
+                    std::cout << "Confirm received for MessageID: " << MessageID << std::endl;
+                    if (std::find(args->seenMessagesID.begin(), args->seenMessagesID.end(), MessageID) == args->seenMessagesID.end()) {
+                        args->seenMessagesID.push_back(MessageID);
+                    }
                     break;
                 }
                 default:
@@ -276,4 +257,5 @@ void udp_listen(ProgramArgs *args, bool *exit_flag) {
     }
 
     std::cout << "UDP Listener shutting down...\n";
+    return nullptr;
 }

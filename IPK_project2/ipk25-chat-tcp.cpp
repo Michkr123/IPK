@@ -10,11 +10,12 @@ void tcp_send(ProgramArgs *args, const char *message) {
     }
 }
 
-void tcp_listen(ProgramArgs *args, bool *exit_flag) {
+void* tcp_listen(void* arg) {
+    ProgramArgs* args = static_cast<ProgramArgs*>(arg);
     char buffer[1024];
     std::string message_buffer;
 
-    while (!(*exit_flag)) {
+    while (!(args->exit_flag)) {
         ssize_t bytes_received = recv(args->sockfd, buffer, sizeof(buffer) - 1, 0);
 
         if (bytes_received < 0) {
@@ -43,8 +44,18 @@ void tcp_listen(ProgramArgs *args, bool *exit_flag) {
                 std::getline(iss, content);
                 if (result == "OK") {
                     std::cout << "Success: " << content << std::endl;
+                    if(args->state == "auth") {
+                        args->state = "open";
+                    }
                 } else {
                     std::cout << "Failure: " << content << std::endl;
+                }
+
+                if(args->state == "join") {
+                    args->state = "open";
+                }
+                else if(args->state == "open") { //TODO check if not making mess
+                    args->state = "end";
                 }
             } 
             else if (command == "MSG") {
@@ -52,19 +63,27 @@ void tcp_listen(ProgramArgs *args, bool *exit_flag) {
                 iss >> from >> displayName >> is;
                 std::getline(iss, content);
                 std::cout << displayName << ": " << content << std::endl;
+
+                if(args->state == "auth") {
+                    args->state = "end";
+                }
             } 
             else if (command == "ERR") {
                 std::string from, displayName, is, content;
                 iss >> from >> displayName >> is;
                 std::getline(iss, content);
                 std::cerr << "Error from " << displayName << ": " << content << std::endl;
+                
+                args->exit_flag = true;
+                args->state = "end";
             } 
             else if (command == "BYE") {
                 std::string from, displayName;
                 iss >> from >> displayName;
                 std::cout << "Server ended the session from " << displayName << ".\n";
-                *exit_flag = true;
-                break;
+                
+                args->exit_flag = true;
+                args->state = "end";
             } 
             else {
                 std::cout << "Unknown message: " << message << std::endl;
@@ -73,10 +92,12 @@ void tcp_listen(ProgramArgs *args, bool *exit_flag) {
     }
 
     close(args->sockfd);
+    return nullptr;
 }
 
 void tcp_auth(ProgramArgs *args) {
     std::string message = "AUTH " + args->username + " AS " + args->displayName + " USING " + args->secret + "\r\n";
+    args->state = "auth";
     tcp_send(args, message.c_str());
 }
 

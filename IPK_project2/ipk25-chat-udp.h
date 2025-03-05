@@ -8,6 +8,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <cstring>
+#include <thread>
+#include <chrono>
+#include <algorithm>
 #include "ipk25-chat.h"
 
 #pragma pack(push, 1)
@@ -28,6 +31,6 @@ void udp_msg(ProgramArgs *args, std::string MessageContent);
 void udp_err(ProgramArgs *args, std::string MessageContent);
 void udp_bye(ProgramArgs *args);
 void udp_ping(ProgramArgs *args);
-void udp_listen(ProgramArgs *args, bool *exit_flag);
+void* udp_listen(void* arg);
 
 #endif // UDP_H

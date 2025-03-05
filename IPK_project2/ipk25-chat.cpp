@@ -82,30 +82,6 @@ void resolve_hostname(ProgramArgs *args) {
     freeaddrinfo(res);
 }
 
-int auth(ProgramArgs &args) {
-    while (true) {
-        std::string input;
-        std::getline(std::cin, input);
-
-        auto tokens = split(input);
-
-        if (tokens.size() == 4) {
-            if(tokens[0] == "/auth") {
-                args.username = tokens[1];
-                args.secret = tokens[2];
-                args.displayName = tokens[3];
-                if (isValidString(args.username) && isValidString(args.secret) && isPrintableChar(args.displayName)) { 
-                    if(args.protocol == "udp")
-                        udp_auth(&args);
-                    else
-                        tcp_auth(&args);
-                    return 0; 
-                }
-            }
-        }
-    }
-}
-
 int main(int argc, char *argv[]) {
     if (argc == 2 && std::string(argv[1]) == "-h") {
         help();
@@ -141,7 +117,6 @@ int main(int argc, char *argv[]) {
     }
 
     std::string MessageContent;
-    bool exit_flag = false;
 
     if(args.protocol == "tcp") {
         if (connect(args.sockfd, (struct sockaddr*)&args.serverAddr, sizeof(args.serverAddr)) < 0) {
@@ -149,31 +124,33 @@ int main(int argc, char *argv[]) {
             return 1;
         }
     }
-    
-    pid_t pid = fork();
-    if(pid == 0) {
-        if(args.protocol == "tcp")
-            tcp_listen(&args, &exit_flag);
-        else
-            udp_listen(&args, &exit_flag);
-        exit(0);
+
+    pthread_t thread;
+    if(args.protocol == "tcp") {
+        if (pthread_create(&thread, nullptr, tcp_listen, (void*)&args) != 0) {
+            std::cerr << "Failed to create tcp listener thread!" << std::endl;
+            return 1;
+        }
+    } else {
+        if (pthread_create(&thread, nullptr, udp_listen, (void*)&args) != 0) {
+            std::cerr << "Failed to create UDP listener thread!" << std::endl;
+            return 1;
+        }
     }
 
-    auth(args); // authentication
-
-    while (!exit_flag) {
+    while (!args.exit_flag) { //TODO individual args.states so the commands are available only when should be!
         std::string input;
         std::getline(std::cin, input);
 
         auto tokens = split(input);
 
-        if(tokens[0] == "/join" && tokens.size() == 3) {
+        if(tokens[0] == "/join" && args.state == "open" && tokens.size() == 3) {
             if(args.protocol == "udp")
                 udp_join(&args, MessageContent);
             else
                 tcp_join(&args, MessageContent);
         }
-        else if(tokens[0] == "/err" && tokens.size() == 3) {
+        else if(tokens[0] == "/err" &&  tokens.size() == 3 && (args.state == "auth" || args.state == "open")) {
             MessageContent = tokens[2];
             if(args.protocol == "udp")
                 udp_err(&args, MessageContent);
@@ -199,7 +176,7 @@ int main(int argc, char *argv[]) {
                 exit(1); 
             }
         }
-        else if(tokens[0] == "/auth" && tokens.size() == 3) {
+        else if(tokens[0] == "/auth" && tokens.size() == 4 && (args.state == "start" || args.state == "auth")) {
             args.username = tokens[1];
             args.secret = tokens[2];
             args.displayName = tokens[3];
@@ -208,10 +185,9 @@ int main(int argc, char *argv[]) {
                     udp_auth(&args);
                 else
                     tcp_auth(&args);
-                return 0; 
             }
         }
-        else if(tokens[0][0] != '/') {
+        else if(tokens[0][0] != '/' && args.state == "open") {
             MessageContent = input;
             if(args.protocol == "udp")
                 udp_msg(&args, MessageContent);
@@ -223,5 +199,6 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    pthread_join(thread, nullptr);  //TODO nevim jak to funguje lol
     return 0;
 }

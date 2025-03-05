@@ -8,6 +8,7 @@
 #include <getopt.h>
 #include <netinet/in.h>
 #include <cstdint>
+#include <pthread.h>
 
 struct ProgramArgs {
     std::string protocol;
@@ -23,6 +24,11 @@ struct ProgramArgs {
 
     int32_t sockfd;
     sockaddr_in serverAddr;
+
+    std::string state = "start";
+
+    std::vector<uint16_t> seenMessagesID;
+    bool exit_flag = false;
 };
 
 #endif // MAIN_H
