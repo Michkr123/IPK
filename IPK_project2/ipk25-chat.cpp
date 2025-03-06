@@ -63,6 +63,8 @@ bool isPrintableChar(const std::string &str) {
     return true;
 }
 
+//TODO messages check
+
 void resolve_hostname(ProgramArgs *args) {
     struct addrinfo hints, *res;
     memset(&hints, 0, sizeof(hints));
@@ -138,24 +140,29 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    while (!args.exit_flag) { //TODO individual args.states so the commands are available only when should be!
+    while (args.state != "end") { //TODO individual args.states so the commands are available only when should be!
         std::string input;
         std::getline(std::cin, input);
 
         auto tokens = split(input);
 
-        if(tokens[0] == "/join" && args.state == "open" && tokens.size() == 3) {
-            if(args.protocol == "udp")
-                udp_join(&args, MessageContent);
-            else
-                tcp_join(&args, MessageContent);
+        if(tokens[0] == "/join" && args.state == "open" && tokens.size() == 2) {
+            MessageContent = tokens[1];
+            //if(isValidString(MessageContent) && MessageContent.size() <= 20) { //TODO doesnt work for the discord.verified-1
+                if(args.protocol == "udp")
+                    udp_join(&args, MessageContent);
+                else
+                    tcp_join(&args, MessageContent);
+            //}
         }
         else if(tokens[0] == "/err" &&  tokens.size() == 3 && (args.state == "auth" || args.state == "open")) {
             MessageContent = tokens[2];
-            if(args.protocol == "udp")
-                udp_err(&args, MessageContent);
-            else
-                tcp_err(&args, MessageContent);
+            if(MessageContent.size() <= 60000) {
+                if(args.protocol == "udp")
+                    udp_err(&args, MessageContent);
+                else
+                    tcp_err(&args, MessageContent);
+            }
         }
         else if(tokens[0] == "/bye" && tokens.size() == 1) {
             if(args.protocol == "udp")
@@ -171,34 +178,37 @@ int main(int argc, char *argv[]) {
                 std::cout << "non-existent command" << std::endl;
         }
         else if(tokens[0] == "/rename" && tokens.size() == 2) {
-            args.displayName = tokens[1];
-            if(!isPrintableChar(args.displayName)) {
-                exit(1); 
+            if(isPrintableChar(args.displayName) && tokens[1].size() <= 20) {
+                args.displayName = tokens[1];
             }
         }
         else if(tokens[0] == "/auth" && tokens.size() == 4 && (args.state == "start" || args.state == "auth")) {
-            args.username = tokens[1];
-            args.secret = tokens[2];
-            args.displayName = tokens[3];
-            if (isValidString(args.username) && isValidString(args.secret) && isPrintableChar(args.displayName)) { 
-                if(args.protocol == "udp")
-                    udp_auth(&args);
-                else
-                    tcp_auth(&args);
+            if(tokens[1].size() <= 20 && tokens[2].size() <= 128 && tokens[3].size() <= 20) {
+                args.username = tokens[1];
+                args.secret = tokens[2];
+                args.displayName = tokens[3];
+                if (isValidString(args.username) && isValidString(args.secret) && isPrintableChar(args.displayName)) { 
+                    if(args.protocol == "udp")
+                        udp_auth(&args);
+                    else
+                        tcp_auth(&args);
+                }
             }
         }
         else if(tokens[0][0] != '/' && args.state == "open") {
             MessageContent = input;
-            if(args.protocol == "udp")
-                udp_msg(&args, MessageContent);
-            else
-                tcp_msg(&args, MessageContent);
+            if(MessageContent.size() <= 60000) {
+                if(args.protocol == "udp")
+                    udp_msg(&args, MessageContent);
+                else
+                    tcp_msg(&args, MessageContent);
+            }
         }
         else {
             std::cout << "non-existent command" << std::endl;
         }
     }
 
-    pthread_join(thread, nullptr);  //TODO nevim jak to funguje lol
+    pthread_join(thread, nullptr);
     return 0;
 }

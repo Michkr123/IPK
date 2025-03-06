@@ -3,22 +3,22 @@
 #include <iomanip> //TODO debug - delete
 
 //TODO debug - delete
-void print_buffer(const std::vector<uint8_t> &buffer) {
-    std::cout << "Buffer content (" << buffer.size() << " bytes): ";
-    for (uint8_t byte : buffer) {
-        std::cout << std::hex << std::setw(2) << std::setfill('0') 
-                  << static_cast<int>(byte) << " ";
-    }
-    std::cout << std::dec << std::endl;
-}
+// void print_buffer(const std::vector<uint8_t> &buffer) {
+//     std::cout << "Buffer content (" << buffer.size() << " bytes): ";
+//     for (uint8_t byte : buffer) {
+//         std::cout << std::hex << std::setw(2) << std::setfill('0') 
+//                   << static_cast<int>(byte) << " ";
+//     }
+//     std::cout << std::dec << std::endl;
+// }
 
-void print_raw_buffer(const uint8_t* buffer, size_t length) {
-    std::cout << "Buffer (" << length << " bytes): ";
-    for (size_t i = 0; i < length; i++) {
-        std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)buffer[i] << " ";
-    }
-    std::cout << std::dec << std::endl;
-}
+// void print_raw_buffer(const uint8_t* buffer, size_t length) {
+//     std::cout << "Buffer (" << length << " bytes): ";
+//     for (size_t i = 0; i < length; i++) {
+//         std::cout << std::hex << std::setw(2) << std::setfill('0') << (int)buffer[i] << " ";
+//     }
+//     std::cout << std::dec << std::endl;
+// }
 //TODO debug - delete
 
 void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
@@ -37,20 +37,25 @@ void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
             perror("Error sending UDP packet");
         }
 
-        if(buffer[0] != 0x00) {
+        uint8_t type = buffer[0];
+
+        //std::cout << "buffer[0]: " << std::hex << static_cast<int>(type) << std::endl;
+
+        if(type != 0x00) {
             std::this_thread::sleep_for(std::chrono::milliseconds(args->timeout));
 
             if (std::find(args->seenMessagesID.begin(), args->seenMessagesID.end(), args->messageID) != args->seenMessagesID.end()) {
-                std::cout << "Message " << args->messageID << " confirmed! Stopping retries." << std::endl;
+                //std::cout << "Message " << args->messageID << " confirmed! Stopping retries." << std::endl;
                 i = args->retry_count;
+                args->messageID++;
             } else {
-                std::cout << "Message " << args->messageID << " not confirmed yet." << std::endl;
+                //std::cout << "Message " << args->messageID << " not confirmed yet." << std::endl;
             }
         }
         else {
+            //std::cout << "Sendind confirm to port: " << ntohs(serverAddr.sin_port) << std::endl;
             return;
         }
-        args->messageID++;
     }        
 
     //args->messageID++;
@@ -59,14 +64,14 @@ void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
 void udp_confirm(ProgramArgs *args, uint16_t refMessageID) {
     uint8_t type = 0x00;
     MessageHeader msgHeader(type, refMessageID);
-    msgHeader.toNetworkByteOrder();
+    //msgHeader.toNetworkByteOrder();
 
     std::vector<uint8_t> buffer;
 
     buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&msgHeader), 
                   reinterpret_cast<uint8_t*>(&msgHeader) + sizeof(msgHeader));
 
-    print_buffer(buffer); //TODO debug
+    //print_buffer(buffer); //TODO debug
     send_UDP(args, buffer);
 }
 
@@ -75,8 +80,6 @@ void udp_auth(ProgramArgs *args) {
     MessageHeader msgHeader(type, args->messageID);
     
     std::vector<uint8_t> buffer;
-
-    //TODO poslat auth spravu s username displayName a secret
 
     buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&msgHeader), 
                   reinterpret_cast<uint8_t*>(&msgHeader) + sizeof(msgHeader));
@@ -90,7 +93,8 @@ void udp_auth(ProgramArgs *args) {
     buffer.insert(buffer.end(), args->secret.begin(), args->secret.end());
     buffer.push_back('\0');
 
-    print_buffer(buffer); //TODO debug
+    //print_buffer(buffer); //TODO debug
+    args->state = "auth";
     send_UDP(args, buffer);
 }
 
@@ -109,7 +113,8 @@ void udp_join(ProgramArgs *args, std::string channelID) {
     buffer.insert(buffer.end(), args->displayName.begin(), args->displayName.end());
     buffer.push_back('\0');
 
-    print_buffer(buffer); //TODO debug
+    //print_buffer(buffer); //TODO debug
+    args->state = "join";
     send_UDP(args, buffer);
 }
 
@@ -128,7 +133,7 @@ void udp_msg(ProgramArgs *args, std::string MessageContent) {
     buffer.insert(buffer.end(), MessageContent.begin(), MessageContent.end());
     buffer.push_back('\0');
 
-    print_buffer(buffer); //TODO debug
+    //print_buffer(buffer); //TODO debug
     send_UDP(args, buffer);
 }
 
@@ -147,7 +152,8 @@ void udp_err(ProgramArgs *args, std::string MessageContent) {
     buffer.insert(buffer.end(), MessageContent.begin(), MessageContent.end());
     buffer.push_back('\0');
 
-    print_buffer(buffer); //TODO debug
+    //print_buffer(buffer); //TODO debug
+    args->state = "end"; //TODO asi?
     send_UDP(args, buffer);
 }
 
@@ -163,7 +169,8 @@ void udp_bye(ProgramArgs *args) {
     buffer.insert(buffer.end(), args->displayName.begin(), args->displayName.end());
     buffer.push_back('\0');
 
-    print_buffer(buffer); //TODO debug
+    //print_buffer(buffer); //TODO debug
+    args->state = "end";
     send_UDP(args, buffer);
 }
 
@@ -176,7 +183,7 @@ void udp_ping(ProgramArgs *args) {
     buffer.insert(buffer.end(), reinterpret_cast<uint8_t*>(&msgHeader), 
                   reinterpret_cast<uint8_t*>(&msgHeader) + sizeof(msgHeader));
 
-    print_buffer(buffer); //TODO debug
+    //print_buffer(buffer); //TODO debug
     send_UDP(args, buffer);
 }
 
@@ -187,16 +194,16 @@ void* udp_listen(void* arg) {
     socklen_t addr_len = sizeof(client_addr);
     uint8_t buffer[1024];
 
-    std::cout << "UDP Listener started on port " << args->port << "\n";
+    //std::cout << "UDP Listener started on port " << args->port << "\n";
 
-    while (!(args->exit_flag)) {
+    while (args->state != "end") {
         ssize_t recv_len = recvfrom(args->sockfd, buffer, sizeof(buffer) - 1, 0, 
                                     (struct sockaddr *)&client_addr, &addr_len);
         if (recv_len > 0) {
             buffer[recv_len] = '\0'; // Ensure null termination
 
             uint8_t type = buffer[0];
-            uint16_t MessageID = ntohs(*(uint16_t *)(buffer + 1));
+            uint16_t MessageID = *(uint16_t *)(buffer + 1);
 
             switch (type) {
                 case 0x01: { // Reply
@@ -205,11 +212,19 @@ void* udp_listen(void* arg) {
                     char* ptr = reinterpret_cast<char*>(buffer + 6);
                     std::string messageContent(ptr);
                     
-                    args->serverAddr.sin_port = ntohs(client_addr.sin_port); //TODO fix port switching
+                    std::cout << "Incoming port: " << ntohs(client_addr.sin_port) << std::endl;
+                    if(result)
+                        args->port = ntohs(client_addr.sin_port);
 
                     std::cout << "Action " << (result ? "Success: " : "Failure: ") << messageContent << std::endl;
-                    if(result) {
+                    if(args->state == "auth" && result) {
                         args->state = "open";
+                    }
+                    else if(args->state == "join") {
+                        args->state = "open";
+                    }
+                    else if(args->state == "open") {
+                        args->state = "end";
                     }
                     udp_confirm(args, MessageID);
                     break;
@@ -223,6 +238,16 @@ void* udp_listen(void* arg) {
                     std::cout << displayName << ": " << messageContents << std::endl;
 
                     udp_confirm(args, MessageID);
+
+                    if (args->state == "auth") {
+                        udp_err(args, "error"); //TODO error message -> exit
+                        args->state = "end";
+                    }
+                    break;
+                }
+                case 0xFD: {
+                    //std::cout << "ping received" << std::endl;
+                    udp_confirm(args, MessageID);
                     break;
                 }
                 case 0xFE: { // Error
@@ -234,15 +259,18 @@ void* udp_listen(void* arg) {
                     std::cout << "ERROR FROM " << displayName << ": " << messageContents << std::endl;
 
                     udp_confirm(args, MessageID);
+                    args->state = "end";
                     break;
                 }
                 case 0xFF: { // Bye
-                    std::cout << "Bye received" << std::endl;
+                    //std::cout << "Bye received" << std::endl;
+                    
                     udp_confirm(args, MessageID);
+                    args->state = "end";
                     break;
                 }
                 case 0x00: { // Confirmation
-                    std::cout << "Confirm received for MessageID: " << MessageID << std::endl;
+                    //std::cout << "Confirm received for MessageID: " << MessageID << std::endl;
                     if (std::find(args->seenMessagesID.begin(), args->seenMessagesID.end(), MessageID) == args->seenMessagesID.end()) {
                         args->seenMessagesID.push_back(MessageID);
                     }
@@ -256,6 +284,6 @@ void* udp_listen(void* arg) {
         }
     }
 
-    std::cout << "UDP Listener shutting down...\n";
+    //std::cout << "UDP Listener shutting down...\n";
     return nullptr;
 }

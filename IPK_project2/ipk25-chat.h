@@ -28,7 +28,6 @@ struct ProgramArgs {
     std::string state = "start";
 
     std::vector<uint16_t> seenMessagesID;
-    bool exit_flag = false;
 };
 
 #endif // MAIN_H

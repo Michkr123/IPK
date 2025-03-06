@@ -15,7 +15,7 @@ void* tcp_listen(void* arg) {
     char buffer[1024];
     std::string message_buffer;
 
-    while (!(args->exit_flag)) {
+    while ((args->state != "end")) {
         ssize_t bytes_received = recv(args->sockfd, buffer, sizeof(buffer) - 1, 0);
 
         if (bytes_received < 0) {
@@ -44,18 +44,21 @@ void* tcp_listen(void* arg) {
                 std::getline(iss, content);
                 if (result == "OK") {
                     std::cout << "Success: " << content << std::endl;
-                    if(args->state == "auth") {
-                        args->state = "open";
-                    }
                 } else {
                     std::cout << "Failure: " << content << std::endl;
                 }
 
+                std::cout << "RESULT OF THE REPLY: " << result << std::endl;
+                std::cout << "STATE: " << args->state << std::endl; 
+
                 if(args->state == "join") {
                     args->state = "open";
                 }
-                else if(args->state == "open") { //TODO check if not making mess
+                else if(args->state == "open") {
                     args->state = "end";
+                }
+                else if(args->state == "auth" && result == "OK") {
+                    args->state = "open";
                 }
             } 
             else if (command == "MSG") {
@@ -74,7 +77,6 @@ void* tcp_listen(void* arg) {
                 std::getline(iss, content);
                 std::cerr << "Error from " << displayName << ": " << content << std::endl;
                 
-                args->exit_flag = true;
                 args->state = "end";
             } 
             else if (command == "BYE") {
@@ -82,7 +84,6 @@ void* tcp_listen(void* arg) {
                 iss >> from >> displayName;
                 std::cout << "Server ended the session from " << displayName << ".\n";
                 
-                args->exit_flag = true;
                 args->state = "end";
             } 
             else {
@@ -96,13 +97,14 @@ void* tcp_listen(void* arg) {
 }
 
 void tcp_auth(ProgramArgs *args) {
-    std::string message = "AUTH " + args->username + " AS " + args->displayName + " USING " + args->secret + "\r\n";
     args->state = "auth";
+    std::string message = "AUTH " + args->username + " AS " + args->displayName + " USING " + args->secret + "\r\n";
     tcp_send(args, message.c_str());
 }
 
 void tcp_join(ProgramArgs *args, std::string channelID) {
-    std::string message = "JOIN " + channelID + " AS " + args->displayName + "\r\n";
+    args->state = "join";
+    std::string message = "JOIN " + channelID + " AS " + args->displayName + "\r\n";   
     tcp_send(args, message.c_str());
 }
 
@@ -112,11 +114,13 @@ void tcp_msg(ProgramArgs *args, std::string messageContent) {
 }
 
 void tcp_err(ProgramArgs *args, std::string messageContent) {
+    args->state = "end";
     std::string message = "ERR FROM " + args->displayName + " IS " + messageContent + "\r\n";
     tcp_send(args, message.c_str());
 }
 
 void tcp_bye(ProgramArgs *args) {
+    args->state = "end";
     std::string message = "BYE FROM " + args->displayName + "\r\n";
     tcp_send(args, message.c_str());
 }
