@@ -12,41 +12,116 @@
 #include <csignal>
 #include <netinet/tcp.h>
 #include <netinet/ip.h> 
+#include <netinet/ip6.h> 
 #include <pcap.h>
 #include <netinet/ip_icmp.h>
 #include <errno.h>
 #include <cstring>
+#include <cstdlib>
+#include <ctime>
+#include <set>
 
-const int BUFFER_SIZE = 1024;
+#include <ifaddrs.h>
+#include <sys/types.h>
 
-void parse_args(int argc, char *argv[], std::string &interface, std::string &port_range_tcp, std::string &port_range_udp, std::string &IP, int *timeout) {
+static const char* DEFAULT_SOURCE_IP = "192.168.1.100";
+
+const int BUFFER_SIZE = 1500;
+static const int DEFAULT_TIMEOUT_MS = 5000;
+
+
+void list_interfaces() {
+    struct ifaddrs *ifaddr = nullptr, *ifa = nullptr;
+    if (getifaddrs(&ifaddr) == -1) {
+        perror("getifaddrs");
+        exit(1);
+    }
+
+    std::set<std::string> printed;
+    for (ifa = ifaddr; ifa; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr) continue;
+        int family = ifa->ifa_addr->sa_family;
+        if (family == AF_INET || family == AF_INET6) {
+            std::string name(ifa->ifa_name);
+            if (printed.find(name) == printed.end()) {
+                std::cout << name << std::endl;
+                printed.insert(name);
+            }
+        }
+    }
+
+    freeifaddrs(ifaddr);
+}
+
+std::string get_ip_from_iface(const std::string &iface) {
+    struct ifaddrs *ifaddr = nullptr;
+    struct ifaddrs *ifa    = nullptr;
+
+    if (getifaddrs(&ifaddr) == -1) {
+        std::perror("getifaddrs");
+        return "";
+    }
+
+    std::string result;
+    for (ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr) {
+            continue;
+        }
+        if (std::string(ifa->ifa_name) == iface &&
+            ifa->ifa_addr->sa_family == AF_INET)
+        {
+            char buf[INET_ADDRSTRLEN];
+            auto *in = reinterpret_cast<struct sockaddr_in *>(ifa->ifa_addr);
+            if (inet_ntop(AF_INET, &in->sin_addr, buf, sizeof(buf))) {
+                result = buf;
+                break;
+            }
+        }
+    }
+    freeifaddrs(ifaddr);
+    return result;
+}
+
+static std::string interfaceArg;
+static std::string port_range_tcp;
+static std::string port_range_udp;
+static std::string IP;
+static int timeout_ms = DEFAULT_TIMEOUT_MS;
+
+void parse_args(int argc, char *argv[],
+                std::string &interface,
+                std::string &port_range_tcp,
+                std::string &port_range_udp,
+                std::string &IP,
+                int *timeout) {
     int opt;
     struct option long_options[] = {
         {"interface", required_argument, nullptr, 'i'},
         {"pt", required_argument, nullptr, 't'},
         {"pu", required_argument, nullptr, 'u'},
+        {"wait", required_argument, nullptr, 'w'},
         {nullptr, 0, nullptr, 0}
     };
 
     while((opt = getopt_long(argc, argv, "i:t:u:w:", long_options, nullptr)) != -1) {
-        switch(opt) { // TODO exit pokud je zadan jeden vicekrat
+        switch(opt) {
             case 'i':
                 if(!interface.empty()) {
-                    std::cout << "duplicate" << std::endl;
+                    std::cerr << "duplicate interface option\n";
                     exit(1);
                 }
                 interface = optarg;
                 break;
             case 't':
                 if(!port_range_tcp.empty()) {
-                    std::cout << "duplicate" << std::endl;
+                    std::cerr << "duplicate TCP port range\n";
                     exit(1);
                 }
                 port_range_tcp = optarg;
                 break;
             case 'u':
                 if(!port_range_udp.empty()) {
-                    std::cout << "duplicate" << std::endl;
+                    std::cerr << "duplicate UDP port range\n";
                     exit(1);
                 }
                 port_range_udp = optarg;
@@ -66,13 +141,7 @@ void parse_args(int argc, char *argv[], std::string &interface, std::string &por
         std::cerr << "No IP/domain specified!\n";
         exit(1);
     }
-}
 
-void print_vector(const std::vector<int> &vec) {
-    for(const int &val : vec) {
-        std::cout << val << " ";
-    }
-    std::cout << std::endl;
 }
 
 std::vector<int> parse_ports(const std::string &port_range) {
@@ -103,151 +172,353 @@ std::vector<int> parse_ports(const std::string &port_range) {
 std::string resolve_hostname(const std::string& hostname) {
     struct hostent* he = gethostbyname(hostname.c_str());
     if (he == nullptr || he->h_addr_list[0] == nullptr) {
-        std::cerr << "Failed to resolve hostname." << std::endl;
+        std::cerr << "Failed to resolve hostname.\n";
         exit(1);
     }
-
     struct in_addr** addr_list = (struct in_addr**)he->h_addr_list;
     return std::string(inet_ntoa(*addr_list[0]));
 }
 
-void send_syn_packet(int sock, const sockaddr_in& addr) {
-    char buffer[40];
-    memset(buffer, 0, sizeof(buffer));
+struct pseudo_header {
+    uint32_t src;
+    uint32_t dst;
+    uint8_t  zero;
+    uint8_t  proto;
+    uint16_t length;
+};
 
-    struct tcphdr *tcp_header = (struct tcphdr *)(buffer);
+unsigned short ip_checksum(unsigned short *buf, int len) {
+    unsigned long sum = 0;
+    while (len > 1) {
+        sum += *buf++;
+        len -= 2;
+    }
+    if (len == 1) {
+        unsigned short tmp = 0;
+        *(unsigned char*)(&tmp) = *(unsigned char*)buf;
+        sum += tmp;
+    }
+    while (sum >> 16) {
+        sum = (sum & 0xffff) + (sum >> 16);
+    }
+    return (unsigned short)(~sum);
+}
 
-    tcp_header->source = htons(12345);
-    tcp_header->dest = addr.sin_port;
-    tcp_header->seq = htonl(0);
-    tcp_header->ack_seq = 0;
-    tcp_header->doff = 5;
-    tcp_header->syn = 1;
-    tcp_header->window = htons(65535);
-    tcp_header->check = 0;
-    tcp_header->urg_ptr = 0;
+unsigned short tcp_checksum(const struct iphdr *iph, const struct tcphdr *tcph, int tcp_len) {
+    pseudo_header ph;
+    ph.src    = iph->saddr;
+    ph.dst    = iph->daddr;
+    ph.zero   = 0;
+    ph.proto  = IPPROTO_TCP;
+    ph.length = htons(tcp_len);
 
-    if (sendto(sock, buffer, sizeof(struct tcphdr), 0, (sockaddr*)&addr, sizeof(addr)) < 0) {
+    unsigned long sum = 0;
+    const unsigned short *p = (unsigned short *)&ph;
+    int ph_len = sizeof(ph);
+
+    while (ph_len > 1) {
+        sum += *p++;
+        ph_len -= 2;
+    }
+
+    p = (unsigned short*)tcph;
+    int len = tcp_len;
+    while (len > 1) {
+        sum += *p++;
+        len -= 2;
+    }
+    if (len == 1) {
+        unsigned short tmp = 0;
+        *(unsigned char*)(&tmp) = *(unsigned char*)p;
+        sum += tmp;
+    }
+
+    while (sum >> 16) sum = (sum & 0xffff) + (sum >> 16);
+    return (unsigned short)(~sum);
+}
+
+void send_syn_packet_ipheader(int sock,
+                            const std::string &src_ip,
+                            const std::string &dst_ip,
+                            unsigned short src_port,
+                            unsigned short dst_port)
+{
+    char packet[sizeof(struct iphdr) + sizeof(struct tcphdr)];
+    memset(packet, 0, sizeof(packet));
+
+    struct iphdr  *iph  = (struct iphdr *) packet;
+    struct tcphdr *tcph = (struct tcphdr *)(packet + sizeof(struct iphdr));
+
+    iph->ihl      = 5;
+    iph->version  = 4;
+    iph->tos      = 0;
+    iph->tot_len  = htons(sizeof(packet));
+    iph->id       = htons(rand() % 65535);
+    iph->frag_off = 0;
+    iph->ttl      = 64;
+    iph->protocol = IPPROTO_TCP;
+    iph->check    = 0;
+    iph->saddr    = inet_addr(src_ip.c_str());
+    iph->daddr    = inet_addr(dst_ip.c_str());
+
+    tcph->source  = htons(src_port);
+    tcph->dest    = htons(dst_port);
+    tcph->seq     = htonl(rand());
+    tcph->ack_seq = 0;
+    tcph->doff    = 5; 
+    tcph->syn     = 1;
+    tcph->window  = htons(65535);
+    tcph->check   = 0;
+    tcph->urg_ptr = 0;
+
+    iph->check = ip_checksum((unsigned short*)packet, sizeof(struct iphdr));
+
+    int tcp_len = sizeof(struct tcphdr);
+    tcph->check = tcp_checksum(iph, tcph, tcp_len);
+
+    sockaddr_in sin;
+    memset(&sin, 0, sizeof(sin));
+    sin.sin_family      = AF_INET;
+    sin.sin_port        = tcph->dest;
+    sin.sin_addr.s_addr = iph->daddr;
+
+    if (sendto(sock, packet, sizeof(packet), 0, 
+            (sockaddr*)&sin, sizeof(sin)) < 0)
+    {
         std::cerr << "Failed to send TCP SYN packet: " << strerror(errno) << std::endl;
     }
 }
 
-int listen_for_response(int sock, int port, const std::string& IP, int timeout) {
+int listen_for_response_ipheader(int sock, 
+                                unsigned short src_port, 
+                                unsigned short dst_port,
+                                const std::string &dst_ip,
+                                int timeout)
+{
     char buffer[BUFFER_SIZE];
     sockaddr_in addr;
     socklen_t addr_len = sizeof(addr);
 
     struct timeval tv;
-    tv.tv_sec = timeout / 1000;
+    tv.tv_sec  = timeout / 1000;
     tv.tv_usec = (timeout % 1000) * 1000;
     setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
 
-    int recv_len = recvfrom(sock, buffer, BUFFER_SIZE, 0, (sockaddr*)&addr, &addr_len);
-    std::cerr << "Received packet length: " << recv_len << std::endl;
-
-    if (recv_len > 0) {
-        std::cerr << "Received packet data: ";
-        for (int i = 0; i < recv_len; ++i) {
-            std::cerr << std::hex << (unsigned int)(unsigned char)buffer[i] << " ";
+    for (int i = 0; i < 30; i++) {
+        memset(buffer, 0, sizeof(buffer));
+        int recv_len = recvfrom(sock, buffer, sizeof(buffer), 0, 
+                                (sockaddr*)&addr, &addr_len);
+        if (recv_len < 0) {
+            return 1;
         }
-        std::cerr << std::dec << std::endl;
-
-        struct ip *iph = (struct ip *)buffer;
-        struct tcphdr *tcph = (struct tcphdr *)(buffer + iph->ip_hl * 4);
-
-        std::cerr << "IP Header Length: " << (int)iph->ip_hl << std::endl;
-        std::cerr << "Protocol: " << (int)iph->ip_p << std::endl;
-        std::cerr << "Source IP: " << inet_ntoa(addr.sin_addr) << std::endl;
-        std::cerr << "Destination Port: " << ntohs(tcph->dest) << std::endl;
-        std::cerr << "Source Port: " << ntohs(tcph->source) << std::endl;
-        std::cerr << "TCP Flags: " << std::hex << (unsigned int)tcph->th_flags << std::dec << std::endl;
-
+        struct ip *iph = (struct ip*)buffer;
         if (iph->ip_p == IPPROTO_TCP) {
-            int dst_port = ntohs(tcph->dest);
-            if (dst_port == port) {
-                if (tcph->syn && tcph->ack) {
-                    std::cout << port << "/tcp open." << std::endl;
-                    return 0;
-                } else if (tcph->rst) {
-                    std::cout << port << "/tcp closed." << std::endl;
-                    return 0;
+            int ip_hdr_len = iph->ip_hl * 4;
+            if (recv_len >= ip_hdr_len + (int)sizeof(struct tcphdr)) {
+                struct tcphdr *tcph = (struct tcphdr*)(buffer + ip_hdr_len);
+                unsigned short rcv_dst_port = ntohs(tcph->dest);
+                unsigned short rcv_src_port = ntohs(tcph->source);
+                if (rcv_dst_port == src_port && rcv_src_port == dst_port) {
+                    if (tcph->syn && tcph->ack) {
+                        std::cout << dst_ip << " " << dst_port << " tcp open" << std::endl;
+                        return 0;
+                    } else if (tcph->rst) {
+                        std::cout << dst_ip << " " << dst_port << " tcp closed" << std::endl;
+                        return 0;
+                    }
                 }
-                return 1;
-            } else {
-                std::cerr << "Port mismatch: Received " << dst_port << ", Expected " << port << std::endl;
-                return 1;
             }
         }
-    } else {
-        std::cerr << "recvfrom error: " << strerror(errno) << std::endl;
-        return 1;
+    }
+    return 1;
+}
+
+void send_syn_packet_ipv6(int sock, const std::string& src_ip, const std::string& dst_ip, uint16_t src_port, uint16_t dst_port) {
+    char packet[sizeof(struct ip6_hdr) + sizeof(struct tcphdr)] = {0};
+
+    // IPv6 header
+    struct ip6_hdr *ip6h = (struct ip6_hdr *)packet;
+    inet_pton(AF_INET6, src_ip.c_str(), &ip6h->ip6_src);
+    inet_pton(AF_INET6, dst_ip.c_str(), &ip6h->ip6_dst);
+    ip6h->ip6_flow = htonl((6 << 28) | (0 << 20) | 0); // version, traffic class, flow label
+    ip6h->ip6_plen = htons(sizeof(struct tcphdr));
+    ip6h->ip6_nxt = IPPROTO_TCP;
+    ip6h->ip6_hops = 64;
+
+    // TCP header
+    struct tcphdr *tcph = (struct tcphdr *)(packet + sizeof(struct ip6_hdr));
+    tcph->source = htons(src_port);
+    tcph->dest = htons(dst_port);
+    tcph->seq = htonl(rand());
+    tcph->doff = 5;
+    tcph->syn = 1;
+    tcph->window = htons(65535);
+    tcph->check = 0; // set below
+
+    // Pseudo header for checksum
+    struct {
+        struct in6_addr src;
+        struct in6_addr dst;
+        uint32_t length;
+        uint8_t zero[3];
+        uint8_t next_hdr;
+    } pseudo_hdr{};
+
+    inet_pton(AF_INET6, src_ip.c_str(), &pseudo_hdr.src);
+    inet_pton(AF_INET6, dst_ip.c_str(), &pseudo_hdr.dst);
+    pseudo_hdr.length = htonl(sizeof(struct tcphdr));
+    pseudo_hdr.next_hdr = IPPROTO_TCP;
+
+    // Combine pseudo-header + TCP for checksum
+    char checksum_buf[sizeof(pseudo_hdr) + sizeof(struct tcphdr)];
+    memcpy(checksum_buf, &pseudo_hdr, sizeof(pseudo_hdr));
+    memcpy(checksum_buf + sizeof(pseudo_hdr), tcph, sizeof(struct tcphdr));
+
+    unsigned long sum = 0;
+    for (size_t i = 0; i < sizeof(checksum_buf); i += 2) {
+        uint16_t word = (checksum_buf[i] << 8) + (i + 1 < sizeof(checksum_buf) ? checksum_buf[i + 1] : 0);
+        sum += word;
+    }
+    while (sum >> 16) sum = (sum & 0xFFFF) + (sum >> 16);
+    tcph->check = ~((uint16_t)sum);
+
+    // Destination
+    struct sockaddr_in6 dst{};
+    dst.sin6_family = AF_INET6;
+    dst.sin6_port = tcph->dest;
+    inet_pton(AF_INET6, dst_ip.c_str(), &dst.sin6_addr);
+
+    // Send
+    if (sendto(sock, packet, sizeof(packet), 0, (struct sockaddr *)&dst, sizeof(dst)) < 0) {
+        std::cerr << "IPv6 SYN send failed: " << strerror(errno) << std::endl;
     }
 }
 
+int listen_for_response_ipv6(int sock, unsigned short src_port, unsigned short dst_port, const std::string &IP, int timeout_ms) {
+    char buf[BUFFER_SIZE];
+    sockaddr_in6 addr; socklen_t len=sizeof(addr);
+    timeval tv{timeout_ms/1000,(timeout_ms%1000)*1000};
+    setsockopt(sock,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
 
-void scan_tcp(const std::vector<int>& tcp_ports, const std::string& IP, int timeout) {
-    int sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
-    if (sock < 0) {
-        std::cerr << "Failed to create TCP socket: " << strerror(errno) << std::endl;
-        return;
-    }
-
-    for (int port : tcp_ports) {
-        sockaddr_in addr;
-        addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
-        inet_pton(AF_INET, IP.c_str(), &addr.sin_addr);
-        send_syn_packet(sock, addr);
-
-        if (listen_for_response(sock, port, IP, timeout)) {
-            send_syn_packet(sock, addr);
-            if(listen_for_response(sock, port, IP, timeout)) 
-                std::cout << port << "/tcp filtered" << std::endl;
+    int n = recvfrom(sock, buf, sizeof(buf),0,(sockaddr*)&addr,&len);
+    if(n>0) {
+        struct tcphdr *tcph=(struct tcphdr*)(buf+40);
+        if(ntohs(tcph->dest)==src_port && ntohs(tcph->source)==dst_port) {
+            if(tcph->syn && tcph->ack) { std::cout<<IP<<" "<<dst_port<<" tcp open\n"; return 0; }
+            if(tcph->rst)         { std::cout<<IP<<" "<<dst_port<<" tcp closed\n"; return 0; }
         }
     }
-
-    close(sock);
+    return 1;
 }
 
-void scan_udp(std::vector<int> udp_ports, std::string IP, int timeout) { // TODO all ports timeout and they are marked as open 
+void scan_tcp(const std::vector<int>& tcp_ports, 
+              const std::string& dst_ip, 
+              int timeout_ms,
+              const std::string &source_ip)
+{
+    bool is_ipv6 = dst_ip.find(':') != std::string::npos;
+
+    if (is_ipv6) {
+        srand(time(nullptr));
+        for (int port : tcp_ports) {
+            unsigned short src_port = 20000 + (rand() % 20000);
+
+            int sock6 = socket(AF_INET6, SOCK_RAW, IPPROTO_RAW);
+            if (sock6 < 0) {
+                std::cerr << "Failed to create raw IPv6 TCP socket: " << strerror(errno) << std::endl;
+                continue;
+            }
+
+            sockaddr_in6 addr6{};
+            addr6.sin6_family = AF_INET6;
+            addr6.sin6_port = htons(port);
+            if (inet_pton(AF_INET6, dst_ip.c_str(), &addr6.sin6_addr) != 1) {
+                std::cerr << "Invalid IPv6 address: " << dst_ip << std::endl;
+                close(sock6);
+                continue;
+            }
+
+            send_syn_packet_ipv6(sock6, source_ip, dst_ip, src_port, port);
+
+            if (listen_for_response_ipv6(sock6, src_port, (unsigned short)port, dst_ip, timeout_ms)) {
+                send_syn_packet_ipv6(sock6, source_ip, dst_ip, src_port, port);
+                if (listen_for_response_ipv6(sock6, src_port, (unsigned short)port, dst_ip, timeout_ms)) {
+                    std::cout << dst_ip << " " << port << " tcp filtered" << std::endl;
+                }
+            }
+
+            close(sock6);
+        }
+
+    } else {
+        int sock = socket(AF_INET, SOCK_RAW, IPPROTO_TCP);
+        if (sock < 0) {
+            std::cerr << "Failed to create raw TCP socket: " << strerror(errno) << std::endl;
+            return;
+        }
+        int one = 1;
+        if (setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
+            std::cerr << "setsockopt(IP_HDRINCL) failed: " << strerror(errno) << std::endl;
+            close(sock);
+            return;
+        }
+
+        srand(time(nullptr));
+
+        for (int port : tcp_ports) {
+            unsigned short src_port = 20000 + (rand() % 20000);
+            send_syn_packet_ipheader(sock, source_ip, dst_ip, src_port, (unsigned short)port);
+
+            if (listen_for_response_ipheader(sock, src_port, (unsigned short)port, dst_ip, timeout_ms)) {
+                send_syn_packet_ipheader(sock, source_ip, dst_ip, src_port, (unsigned short)port);
+                if (listen_for_response_ipheader(sock, src_port, (unsigned short)port, dst_ip, timeout_ms)) {
+                    std::cout << dst_ip << " " << port << " tcp filtered" << std::endl;
+                }
+            }
+        }
+
+        close(sock);
+    }
+}
+
+void scan_udp(const std::vector<int>& udp_ports, 
+            const std::string& IP, 
+            int timeout) 
+{
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if(sock < 0) {
-        std::cerr << "Failed to create socket." << std::endl;
-        exit(1);
+        std::cerr << "Failed to create UDP socket: " << strerror(errno) << std::endl;
+        return;
     }
 
     for (int port : udp_ports) {
         sockaddr_in addr;
         addr.sin_family = AF_INET;
-        addr.sin_port = htons(port);
+        addr.sin_port   = htons(port);
         inet_pton(AF_INET, IP.c_str(), &addr.sin_addr);
 
         char buffer[1] = {0};
 
-        if(sendto(sock, buffer, sizeof(buffer), 0, (sockaddr*)&addr, sizeof(addr)) < 0) {
-            std::cerr << "Failed sending UDP packet." << std::endl;
-            close(sock);
-            exit(1);
+        if(sendto(sock, buffer, sizeof(buffer), 0, 
+                (sockaddr*)&addr, sizeof(addr)) < 0)
+        {
+            std::cerr << "Failed sending UDP packet.\n";
+            continue;
         }
 
         struct timeval tv;
-        tv.tv_sec = timeout / 1000;
-        tv.tv_usec =(timeout % 1000) * 1000;
+        tv.tv_sec  = timeout / 1000;
+        tv.tv_usec = (timeout % 1000) * 1000;
         setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
-        socklen_t len = sizeof(addr); 
+        socklen_t len = sizeof(addr);
 
-        if(recvfrom(sock, buffer, sizeof(buffer), 0, (struct sockaddr *) &addr, &len) < 0) { //TODO ze zadani jsem pochopil (prisla zprava && icmp code 3 -> open; jinak close)... Co vic, cekat timeout? nekolik pokusu? nic tam neni napsano :(            
-            std::cout << port << "/udp open" << std::endl;
+        if(recvfrom(sock, buffer, sizeof(buffer), 0, 
+                    (struct sockaddr *) &addr, &len) < 0)
+        {
+            std::cout << IP << " " << port << " udp open" << std::endl;
         }
         else {
-            struct ip* ip_hdr = (struct ip*)buffer;
-            struct icmp* icmp_hdr = (struct icmp*)(buffer + (ip_hdr->ip_hl * 4));
-
-            if (icmp_hdr->icmp_type == ICMP_DEST_UNREACH && icmp_hdr->icmp_code == ICMP_PORT_UNREACH)
-                std::cout << port << "/udp closed." << std::endl;
-            else 
-                std::cout << port << "/udp open" << std::endl;
-
+            std::cout << IP << " " << port << " udp open" << std::endl;
         }
     }
 
@@ -258,37 +529,55 @@ void signal_handler(int) {
     exit(0);
 }
 
-
 int main(int argc, char *argv[]) {
-    signal(SIGINT, signal_handler); 
+    signal(SIGINT, signal_handler);
 
-    std::string interface, port_range_tcp, port_range_udp, IP;
+    if(argc == 1 || (argc == 2 && (std::strcmp(argv[1], "-i") == 0 || std::strcmp(argv[1], "--interface") == 0))) {
+        list_interfaces();
+        exit(0);
+    }
+
+    parse_args(argc, argv, interfaceArg, port_range_tcp, port_range_udp, IP, &timeout_ms);
+
+    struct in_addr ipv4_test;
+    struct in6_addr ipv6_test;
+
+    if (inet_pton(AF_INET, IP.c_str(), &ipv4_test) == 1 || 
+        inet_pton(AF_INET6, IP.c_str(), &ipv6_test) == 1) {
+    } else {
+        IP = resolve_hostname(IP);
+    }
+
+    std::string source_ip;
+    if (!interfaceArg.empty()) {
+        source_ip = get_ip_from_iface(interfaceArg);
+        if (source_ip.empty()) {
+            std::cerr << "Could not find IPv4 address for interface: " << interfaceArg << std::endl;
+            source_ip = DEFAULT_SOURCE_IP;
+        } else {
+            std::cerr << "Using source IP " << source_ip 
+                    << " from interface " << interfaceArg << std::endl;
+        }
+    } else {
+        source_ip = DEFAULT_SOURCE_IP;
+        std::cerr << "No interface provided. Using fallback source IP: " 
+                << source_ip << std::endl;
+    }
+
     std::vector<int> tcp_ports, udp_ports;
-    int timeout = 1000; //TODO defualt 5000
-
-    parse_args(argc, argv, interface, port_range_tcp, port_range_udp, IP, &timeout);
-
-    IP = resolve_hostname(IP);
-
-    if(!port_range_tcp.empty())
+    if(!port_range_tcp.empty()) {
         tcp_ports = parse_ports(port_range_tcp);
-    if(!port_range_udp.empty())
+    }
+    if(!port_range_udp.empty()) {
         udp_ports = parse_ports(port_range_udp);
+    }
 
-    //std::cout << "Interface: " << interface << "\n";
-    //std::cout << "TCP Port Range: ";
-    // print_vector(tcp_ports);
-    // std::cout << "UDP Port Range: ";
-    // print_vector(udp_ports);
-    // std::cout << "IP/Hostname: " << IP << std::endl;
-    // std::cout << "Timeout: " << timeout << std::endl; 
-    // std::cout << "____________________________________" << std::endl;
-
-    std::cout << "Interesting ports on " << IP << ":" << std::endl; //TODO format "hostname (IP):"
-    if(!port_range_tcp.empty())
-        scan_tcp(tcp_ports, IP, timeout);
-    if(!port_range_udp.empty())
-        scan_udp(udp_ports, IP, timeout);
+    if(!tcp_ports.empty()) {
+        scan_tcp(tcp_ports, IP, timeout_ms, source_ip);
+    }
+    if(!udp_ports.empty()) {
+        scan_udp(udp_ports, IP, timeout_ms);
+    }
 
     return 0;
 }
