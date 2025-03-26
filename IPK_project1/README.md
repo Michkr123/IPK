@@ -2,11 +2,11 @@
 
 ## Introduction
 
-This document describes the L4 Scanner project developed for the IPK (Computer Communications) course. The goal is to scan specified TCP and/or UDP ports on a target host and determine their state (open, closed, or filtered).
+This document describes the L4 Scanner project developed for the IPK (Computer Communications) course. The goal is to scan specified TCP and/or UDP ports on a target host and determine their state (open, closed, or filtered). Works for both IPv4 and IPv6.
 
 The project implements:
-- TCP SYN scanning (raw SYN packets, no full handshake).
-- UDP scanning (sends UDP datagrams, interprets ICMP “port unreachable” as closed).
+- TCP SYN scanning (sends raw SYN packets - no full handshake).
+- UDP scanning (sends UDP datagrams).
 
 ## Usage
 First you need to compile:
@@ -30,7 +30,7 @@ The complete original specification can be seen [here](https://git.fit.vutbr.cz/
 
 ### TCP SYN Scan
 
-TCP (Transmission Control Protocol) is a connection-oriented protocol (RFC 793). A SYN scan sends only the initial SYN packet to check if a port is open. If a SYN+ACK arrives, the port is open; if an RST arrives, it’s closed; if no reply arrives after multiple attempts, it’s deemed filtered (possible firewall or packet drop).
+TCP (Transmission Control Protocol) is a connection-oriented protocol (RFC 793). A SYN scan sends only the initial SYN packet to check if a port is open. It does not do the complete 3-way handshake. If a SYN+ACK arrives, the port is open; if an RST arrives, it’s closed; if no reply arrives after multiple attempts, it’s deemed filtered.
 
 ### UDP Scan
 
