@@ -103,19 +103,13 @@ According to the IPK instructions:
 
 ## Testing
 
-### Local Tests
-- Loopback
-    - Run a service (e.g. nc -l 22) → scan TCP port 22 on 127.0.0.1 → open.
-    - No service on port 9999 → closed.
-    
-    Warning: raw SYN scanning on 127.0.0.1 can be tricky; the OS might short-circuit the handshake. Consider a VM or a second host for realistic testing.
+### UDP Tests
+![ipk1](img/ipk1.png)
+![ipk2](img/ipk2.png)
 
-### External Tests
-- scanme.nmap.org
-    - sudo ./ipk-l4-scan --pt 22,80 scanme.nmap.org
-    - Usually returns open for port 22 and 80.
-
-    UDP on public hosts typically yields open because most servers drop unknown UDP packets (no ICMP). For closed, test on a local machine or a second host that sends an ICMP port unreachable.
+### TCP Tests
+![ipk3](img/ipk3.png)
+![ipk4](img/ipk4.png)
 
 ## Interface Listing
 No arguments → prints all active interfaces, e.g.:
@@ -124,19 +118,3 @@ lo
 eth0
 wlan0
 ```
-
-## Edge Cases
-- Timeout: If you set a very low timeout, you might get more “filtered” or “open” results.
-- Firewall: A local firewall can cause filtered results for TCP or no ICMP for UDP.
-
-## Conclusion
-
-This L4 Scanner fulfills the IPK assignment’s requirements to perform TCP SYN scans and UDP scans, outputting port states. It leverages raw sockets (for TCP) and standard UDP sockets, carefully handling timeouts and second attempts for “filtered” detection. In practice, testing on real hosts behind NAT or with certain firewalls may yield only filtered or open, highlighting the complexity of real-world scanning.
-
-
-## Zdroje:
-getopt https://www.gnu.org/software/libc/manual/html_node/Getopt-Long-Option-Example.html
-UDP packets sending https://gist.github.com/jimfinnis/6823802
-socket https://www.geeksforgeeks.org/socket-programming-in-cpp/
-inet_pton https://man7.org/linux/man-pages/man3/inet_pton.3.html
-

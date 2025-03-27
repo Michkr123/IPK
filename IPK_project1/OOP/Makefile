@@ -1,9 +1,11 @@
 CXX = g++
-CXXFLAGS = -Wall -Wextra -std=c++17
+CXXFLAGS = -Wall -Wextra -std=c++17 -Iinclude
 LDFLAGS = -lpcap
 
-SRC = main.cpp PortScanner.cpp TCPScanner.cpp UDPScanner.cpp
-OBJ = $(SRC:.cpp=.o)
+SRC_DIR = src
+INC_DIR = include
+SRC = $(wildcard $(SRC_DIR)/*.cpp)
+OBJ = $(SRC:$(SRC_DIR)/%.cpp=$(SRC_DIR)/%.o)
 TARGET = ipk-l4-scan
 
 all: $(TARGET)
@@ -11,8 +13,8 @@ all: $(TARGET)
 $(TARGET): $(OBJ)
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
 
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $<
+$(SRC_DIR)/%.o: $(SRC_DIR)/%.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
 	rm -f $(OBJ) $(TARGET)

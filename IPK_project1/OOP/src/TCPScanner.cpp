@@ -1,24 +1,25 @@
 #include "TCPScanner.hpp"
-#include <iostream>
-#include <cstring>
-#include <ctime>
-#include <unistd.h>
-#include <arpa/inet.h>
-#include <netinet/ip.h>
-#include <netinet/ip6.h>
-#include <netinet/tcp.h>
-#include <sys/socket.h>
-#include <net/if.h>
-#include <pcap.h>  // Include libpcap header
 
-const int BUFFER_SIZE = 1500;
-
-TCPScanner::TCPScanner(const std::string& dst, const std::string& src,
+/**
+ * @brief Constructs a TCPScanner instance.
+ * 
+ * @param interface Network interface name to use for scanning.
+ * @param dst Destination IP address (IPv4 or IPv6).
+ * @param src Source IP address to bind packets from.
+ * @param p Vector of target TCP ports to scan.
+ * @param timeout Timeout duration in milliseconds.
+ */
+TCPScanner::TCPScanner(const std::string& interface, const std::string& dst, const std::string& src,
                        const std::vector<int>& p, int timeout)
-    : dst_ip(dst), src_ip(src), ports(p), timeout_ms(timeout) {}
+    : iface(interface), dst_ip(dst), src_ip(src), ports(p), timeout_ms(timeout) {}
 
-// --- Existing checksum functions ---
-
+/**
+ * @brief Computes checksum for an IPv4 header.
+ * 
+ * @param buf Pointer to header buffer.
+ * @param len Length of the buffer.
+ * @return unsigned short Checksum result.
+ */
 unsigned short ip_checksum(unsigned short *buf, int len) {
     unsigned long sum = 0;
     while (len > 1) {
@@ -36,6 +37,14 @@ unsigned short ip_checksum(unsigned short *buf, int len) {
     return (unsigned short)(~sum);
 }
 
+/**
+ * @brief Computes TCP checksum using a pseudo header for IPv4.
+ * 
+ * @param iph Pointer to IPv4 header.
+ * @param tcph Pointer to TCP header.
+ * @param tcp_len Length of TCP segment.
+ * @return unsigned short Calculated checksum.
+ */
 unsigned short tcp_checksum(const struct iphdr *iph, const struct tcphdr *tcph, int tcp_len) {
     struct {
         uint32_t src;
@@ -64,6 +73,13 @@ unsigned short tcp_checksum(const struct iphdr *iph, const struct tcphdr *tcph, 
     return ~sum;
 }
 
+/**
+ * @brief Computes a general-purpose Internet checksum.
+ * 
+ * @param buf Pointer to data buffer.
+ * @param len Length of data.
+ * @return unsigned short Checksum.
+ */
 unsigned short calculate_checksum(unsigned short* buf, int len) {
     unsigned long sum = 0;
     while (len > 1) {
@@ -77,7 +93,15 @@ unsigned short calculate_checksum(unsigned short* buf, int len) {
     return static_cast<unsigned short>(~sum);
 }
 
-// --- IPv4 functions (unchanged) ---
+/**
+ * @brief Sends a raw TCP SYN packet over IPv4.
+ * 
+ * @param sock Raw socket file descriptor.
+ * @param src_ip Source IP address.
+ * @param dst_ip Destination IP address.
+ * @param src_port Source port.
+ * @param dst_port Destination port.
+ */
 void send_syn_packet(int sock, const std::string &src_ip, const std::string &dst_ip,
                      uint16_t src_port, uint16_t dst_port) {
     char packet[sizeof(struct iphdr) + sizeof(struct tcphdr)] = {0};
@@ -105,6 +129,17 @@ void send_syn_packet(int sock, const std::string &src_ip, const std::string &dst
     sendto(sock, packet, sizeof(packet), 0, (sockaddr*)&sin, sizeof(sin));
 }
 
+
+/**
+ * @brief Listens for SYN-ACK or RST responses to determine port state over IPv4.
+ * 
+ * @param sock Raw socket descriptor.
+ * @param src_port Port used as source in SYN packet.
+ * @param dst_port Destination port being scanned.
+ * @param dst_ip Target destination IP.
+ * @param timeout_ms Timeout in milliseconds.
+ * @return int 0 = open/closed (response), 1 = filtered (no response).
+ */
 int listen_for_response(int sock, uint16_t src_port, uint16_t dst_port,
                         const std::string &dst_ip, int timeout_ms) {
     char buffer[BUFFER_SIZE];
@@ -135,18 +170,24 @@ int listen_for_response(int sock, uint16_t src_port, uint16_t dst_port,
     return 1;
 }
 
-// --- Modified IPv6 send function (no bind here) ---
+/**
+ * @brief Sends a raw TCP SYN packet over IPv6.
+ * 
+ * @param sock Raw socket descriptor.
+ * @param src_ip Source IPv6 address.
+ * @param dst_ip Destination IPv6 address.
+ * @param src_port Source TCP port.
+ * @param dst_port Destination TCP port.
+ */
 void send_syn_packet_ipv6(int sock, const std::string& src_ip, const std::string& dst_ip,
                           uint16_t src_port, uint16_t dst_port) {
-    // Build the packet buffer: IPv6 header + TCP header.
     char packet[sizeof(struct ip6_hdr) + sizeof(struct tcphdr)];
     memset(packet, 0, sizeof(packet));
-    // Build IPv6 header.
     struct ip6_hdr* ip6h = reinterpret_cast<struct ip6_hdr*>(packet);
-    ip6h->ip6_flow = htonl(0x60000000);         // Version 6; zero TC and flow label.
-    ip6h->ip6_plen = htons(sizeof(struct tcphdr)); // Payload length = TCP header.
-    ip6h->ip6_nxt  = IPPROTO_TCP;                // Next header = TCP.
-    ip6h->ip6_hops = 64;                         // Hop limit.
+    ip6h->ip6_flow = htonl(0x60000000);
+    ip6h->ip6_plen = htons(sizeof(struct tcphdr));
+    ip6h->ip6_nxt  = IPPROTO_TCP;
+    ip6h->ip6_hops = 64;
     if (inet_pton(AF_INET6, src_ip.c_str(), &ip6h->ip6_src) != 1) {
         std::cerr << "Invalid source IPv6 address\n";
         return;
@@ -155,16 +196,14 @@ void send_syn_packet_ipv6(int sock, const std::string& src_ip, const std::string
         std::cerr << "Invalid destination IPv6 address\n";
         return;
     }
-    // Build TCP header.
     struct tcphdr* tcph = reinterpret_cast<struct tcphdr*>(packet + sizeof(struct ip6_hdr));
     tcph->source = htons(src_port);
     tcph->dest   = htons(dst_port);
     tcph->seq    = htonl(rand());
-    tcph->doff   = 5;  // 5 x 4 = 20 bytes.
+    tcph->doff   = 5;
     tcph->syn    = 1;
     tcph->window = htons(65535);
-    tcph->check  = 0; // Zero before checksum.
-    // Build IPv6 pseudo-header.
+    tcph->check  = 0;
     struct {
         struct in6_addr src;
         struct in6_addr dst;
@@ -183,7 +222,6 @@ void send_syn_packet_ipv6(int sock, const std::string& src_ip, const std::string
     tcph->check = calculate_checksum(reinterpret_cast<unsigned short*>(pseudo_packet),
                                      sizeof(pseudo_packet));
     if (tcph->check == 0) tcph->check = 0xFFFF;
-    // Set destination address.
     struct sockaddr_in6 dst_addr;
     memset(&dst_addr, 0, sizeof(dst_addr));
     dst_addr.sin6_family = AF_INET6;
@@ -192,14 +230,21 @@ void send_syn_packet_ipv6(int sock, const std::string& src_ip, const std::string
         std::cerr << "Invalid destination IPv6 address\n";
         return;
     }
-    // Send the packet.
-    if (sendto(sock, packet, sizeof(packet), 0,
-               reinterpret_cast<struct sockaddr*>(&dst_addr), sizeof(dst_addr)) < 0) {
+    if (sendto(sock, packet, sizeof(packet), 0, reinterpret_cast<struct sockaddr*>(&dst_addr), sizeof(dst_addr)) < 0) {
         perror("sendto");
     }
 }
 
-// --- New function using libpcap to listen for IPv6 responses ---
+/**
+ * @brief Uses libpcap to capture IPv6 TCP responses to SYN packets.
+ * 
+ * @param iface Interface to listen on (e.g., \"wlp3s0\").
+ * @param src_port Source port used in the SYN packet.
+ * @param dst_port Destination port being scanned.
+ * @param dst_ip Target IPv6 address.
+ * @param timeout_ms Timeout in milliseconds for capture.
+ * @return int 0 = open/closed, 1 = filtered.
+ */
 int listen_for_response_ipv6_pcap(const std::string &iface,
                                   unsigned short src_port, unsigned short dst_port,
                                   const std::string &dst_ip, int timeout_ms) {
@@ -209,8 +254,6 @@ int listen_for_response_ipv6_pcap(const std::string &iface,
         std::cerr << "pcap_open_live: " << errbuf << std::endl;
         return 1;
     }
-    // Build a filter: capture IPv6 TCP packets where
-    // source IP = dst_ip, source port = dst_port, destination port = src_port.
     char filter_exp[256];
     snprintf(filter_exp, sizeof(filter_exp),
              "ip6 and tcp and src host %s and src port %d and dst port %d",
@@ -229,16 +272,14 @@ int listen_for_response_ipv6_pcap(const std::string &iface,
     }
     pcap_freecode(&fp);
     
-    // Loop to capture packets.
     struct pcap_pkthdr *header;
     const u_char *packet;
     int ret;
     while ((ret = pcap_next_ex(handle, &header, &packet)) >= 0) {
-        if (ret == 0) continue; // timeout, no packet yet
-        // Adjust for Ethernet header if needed.
+        if (ret == 0) continue;
         int offset = 0;
         int dlt = pcap_datalink(handle);
-        if (dlt == DLT_EN10MB) { // Ethernet
+        if (dlt == DLT_EN10MB) {
             offset = 14;
         }
         if (header->caplen < offset + sizeof(struct ip6_hdr) + sizeof(struct tcphdr))
@@ -260,16 +301,14 @@ int listen_for_response_ipv6_pcap(const std::string &iface,
         }
     }
     pcap_close(handle);
-    return 1; // If no response, treat as filtered.
+    return 1;
 }
 
-int listen_for_response_ipv6(int sock, unsigned short src_port, unsigned short dst_port,
-                               const std::string &IP, int timeout_ms) {
-    // For IPv6, use libpcap instead of recvfrom.
-    // Change "wlp3s0" to your actual interface name.
-    return listen_for_response_ipv6_pcap("wlp3s0", src_port, dst_port, IP, timeout_ms);
-}
-
+/**
+ * @brief Scans all specified TCP ports by sending SYN packets and interpreting responses.
+ * 
+ * Handles both IPv4 and IPv6 targets using raw sockets and pcap (for IPv6 response detection).
+ */
 void TCPScanner::scan() {
     bool is_ipv6 = dst_ip.find(':') != std::string::npos;
     int sock = socket(is_ipv6 ? AF_INET6 : AF_INET, SOCK_RAW, is_ipv6 ? IPPROTO_RAW : IPPROTO_TCP);
@@ -280,7 +319,6 @@ void TCPScanner::scan() {
     int one = 1;
     if (is_ipv6) {
         setsockopt(sock, IPPROTO_IPV6, IPV6_HDRINCL, &one, sizeof(one));
-        // Bind the IPv6 socket once to the source address.
         struct sockaddr_in6 src_addr;
         memset(&src_addr, 0, sizeof(src_addr));
         src_addr.sin6_family = AF_INET6;
@@ -303,9 +341,9 @@ void TCPScanner::scan() {
         unsigned short src_port = 20000 + (rand() % 20000);
         if (is_ipv6) {
             send_syn_packet_ipv6(sock, src_ip, dst_ip, src_port, port);
-            if (listen_for_response_ipv6(sock, src_port, port, dst_ip, timeout_ms)) {
+            if (listen_for_response_ipv6_pcap(iface, src_port, port, dst_ip, timeout_ms)) {
                 send_syn_packet_ipv6(sock, src_ip, dst_ip, src_port, port);
-                if (listen_for_response_ipv6(sock, src_port, port, dst_ip, timeout_ms)) {
+                if (listen_for_response_ipv6_pcap(iface, src_port, port, dst_ip, timeout_ms)) {
                     std::cout << dst_ip << " " << port << " tcp filtered" << std::endl;
                 }
             }
