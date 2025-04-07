@@ -63,7 +63,14 @@ bool isPrintableChar(const std::string &str) {
     return true;
 }
 
-//TODO messages check
+bool isValidMessage(const std::string &message) {
+    for (char c : message) {
+        if(c != 0x0A || c < 0x20 || c > 0x7E) {
+            return false;
+        }
+    }
+    return true;
+}
 
 void resolve_hostname(ProgramArgs *args) {
     struct addrinfo hints, *res;
@@ -84,7 +91,13 @@ void resolve_hostname(ProgramArgs *args) {
     freeaddrinfo(res);
 }
 
+void signal_handler(int) {
+    exit(0); //TODO gracefully terminate connection
+}
+
 int main(int argc, char *argv[]) {
+    std::signal(SIGINT, signal_handler);
+
     if (argc == 2 && std::string(argv[1]) == "-h") {
         help();
     }
@@ -146,27 +159,37 @@ int main(int argc, char *argv[]) {
 
         auto tokens = split(input);
 
-        if(tokens[0] == "/join" && args.state == "open" && tokens.size() == 2) {
-            MessageContent = tokens[1];
-            //if(isValidString(MessageContent) && MessageContent.size() <= 20) { //TODO doesnt work for the discord.verified-1
-                if(args.protocol == "udp")
-                    udp_join(&args, MessageContent);
-                else
-                    tcp_join(&args, MessageContent);
-            //}
+        if(tokens[0] == "/join" && tokens.size() == 2) {
+            if(args.state == "open") {
+                MessageContent = tokens[1];
+                //if(isValidString(MessageContent) && MessageContent.size() <= 20) { //TODO doesnt work for the discord.verified-1
+                    if(args.protocol == "udp")
+                        udp_join(&args, MessageContent);
+                    else
+                        tcp_join(&args, MessageContent);
+                //}
+            }
+            else {
+                std::cerr << "Error: Trying to send an error in non-open state!" << std::endl;
+            }
         }
-        else if(tokens[0] == "/err" &&  tokens.size() == 3 && (args.state == "auth" || args.state == "open")) {
-            MessageContent = tokens[2];
-            if(MessageContent.size() <= 60000) {
-                if(args.protocol == "udp")
-                    udp_err(&args, MessageContent);
-                else
-                    tcp_err(&args, MessageContent);
+        else if(tokens[0] == "/err" &&  tokens.size() == 3) {
+            if(args.state == "auth" || args.state == "open") {
+                MessageContent = tokens[2];
+                if(MessageContent.size() <= 60000) {
+                    if(args.protocol == "udp")
+                        udp_err(&args, MessageContent);
+                    else
+                        tcp_err(&args, MessageContent);
+                }
+            }
+            else {
+                std::cerr << "Error: Trying to send an error in non-open or non-auth state!" << std::endl;
             }
         }
         else if(tokens[0] == "/bye" && tokens.size() == 1) {
             if(args.protocol == "udp")
-                udp_bye(&args);\
+                udp_bye(&args);
             else
                 tcp_bye(&args);
         }
@@ -175,37 +198,51 @@ int main(int argc, char *argv[]) {
                 udp_ping(&args);
             else
                 // tcp_ping(&args);
-                std::cout << "non-existent command" << std::endl;
+                std::cerr << "Error: Ping is not a valid command in TCP variant!" << std::endl;
         }
         else if(tokens[0] == "/rename" && tokens.size() == 2) {
             if(isPrintableChar(args.displayName) && tokens[1].size() <= 20) {
                 args.displayName = tokens[1];
             }
-        }
-        else if(tokens[0] == "/auth" && tokens.size() == 4 && (args.state == "start" || args.state == "auth")) {
-            if(tokens[1].size() <= 20 && tokens[2].size() <= 128 && tokens[3].size() <= 20) {
-                args.username = tokens[1];
-                args.secret = tokens[2];
-                args.displayName = tokens[3];
-                if (isValidString(args.username) && isValidString(args.secret) && isPrintableChar(args.displayName)) { 
-                    if(args.protocol == "udp")
-                        udp_auth(&args);
-                    else
-                        tcp_auth(&args);
-                }
+            else {
+                std::cerr << "Error: Name is too long or containing illegal characters!" << std::endl;
             }
         }
-        else if(tokens[0][0] != '/' && args.state == "open") {
-            MessageContent = input;
-            if(MessageContent.size() <= 60000) {
-                if(args.protocol == "udp")
-                    udp_msg(&args, MessageContent);
-                else
-                    tcp_msg(&args, MessageContent);
+        else if(tokens[0] == "/auth" && tokens.size() == 4) {
+            if(args.state == "start" || args.state == "auth")
+            {
+                if(tokens[1].size() <= 20 && tokens[2].size() <= 128 && tokens[3].size() <= 20) {
+                    args.username = tokens[1];
+                    args.secret = tokens[2];
+                    args.displayName = tokens[3];
+                    if (isValidString(args.username) && isValidString(args.secret) && isPrintableChar(args.displayName)) { 
+                        if(args.protocol == "udp")
+                            udp_auth(&args);
+                        else
+                            tcp_auth(&args);
+                    }
+                }
+            }
+            else {
+                std::cerr << "Error: Trying to auth when already authenticated!" << std::endl;
+            }
+        }
+        else if(tokens[0][0] != '/') {
+            if(args.state == "open") {
+                MessageContent = input;
+                if(MessageContent.size() <= 60000 && isValidMessage(MessageContent)) {
+                    if(args.protocol == "udp")
+                        udp_msg(&args, MessageContent);
+                    else
+                        tcp_msg(&args, MessageContent);
+                }
+            }
+            else {
+                std::cerr << "Error: Trying to send a message in a non-open state!" << std::endl;
             }
         }
         else {
-            std::cout << "non-existent command" << std::endl;
+            std::cerr << "Error: Trying to process an unknown or otherwise malformed command or user input in general!" << std::endl;
         }
     }
 

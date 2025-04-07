@@ -22,7 +22,7 @@
 //TODO debug - delete
 
 void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
-    for(int i = 0; i < args->retry_count; i++) {
+    for(int i = 0; i <= args->retry_count; i++) {
         int sockfd = args->sockfd;
         struct sockaddr_in serverAddr;
         memset(&serverAddr, 0, sizeof(serverAddr));
@@ -49,6 +49,9 @@ void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
                 i = args->retry_count;
                 args->messageID++;
             } else {
+                if (i == args->retry_count) {
+                    exit(1); //TODO messages not confirmed
+                }
                 //std::cout << "Message " << args->messageID << " not confirmed yet." << std::endl;
             }
         }
@@ -56,7 +59,8 @@ void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
             //std::cout << "Sendind confirm to port: " << ntohs(serverAddr.sin_port) << std::endl;
             return;
         }
-    }        
+    }   
+    //TODO nedostali jsme confirm?     
 
     //args->messageID++;
 }

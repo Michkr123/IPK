@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <cstdint>
 #include <pthread.h>
+#include <csignal>
 
 struct ProgramArgs {
     std::string protocol;

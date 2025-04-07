@@ -30,7 +30,7 @@ void* tcp_listen(void* arg) {
         message_buffer += buffer;
         
         size_t pos;
-        while ((pos = message_buffer.find("\r\n")) != std::string::npos) {
+        while ((pos = message_buffer.find("\r\n")) != std::string::npos && args->state != "end") {
             std::string message = message_buffer.substr(0, pos);
             message_buffer.erase(0, pos + 2);
 
@@ -78,6 +78,7 @@ void* tcp_listen(void* arg) {
                 std::cerr << "Error from " << displayName << ": " << content << std::endl;
                 
                 args->state = "end";
+                //TODO exit the while for message
             } 
             else if (command == "BYE") {
                 std::string from, displayName;
@@ -85,6 +86,7 @@ void* tcp_listen(void* arg) {
                 std::cout << "Server ended the session from " << displayName << ".\n";
                 
                 args->state = "end";
+                //TODO exit the while for message
             } 
             else {
                 std::cout << "Unknown message: " << message << std::endl;
