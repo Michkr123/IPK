@@ -65,7 +65,7 @@ bool isPrintableChar(const std::string &str) {
 
 bool isValidMessage(const std::string &message) {
     for (char c : message) {
-        if(c != 0x0A || c < 0x20 || c > 0x7E) {
+        if(c != 0x0A && (c < 0x20 || c > 0x7E)) {
             return false;
         }
     }
@@ -230,6 +230,7 @@ int main(int argc, char *argv[]) {
         else if(tokens[0][0] != '/') {
             if(args.state == "open") {
                 MessageContent = input;
+                //std::cout << MessageContent << " is valid message?" << isValidMessage(MessageContent) << std::endl;
                 if(MessageContent.size() <= 60000 && isValidMessage(MessageContent)) {
                     if(args.protocol == "udp")
                         udp_msg(&args, MessageContent);

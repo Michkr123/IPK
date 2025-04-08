@@ -29,6 +29,7 @@ struct ProgramArgs {
     std::string state = "start";
 
     std::vector<uint16_t> seenMessagesID;
+    std::vector<uint16_t> messageReplysID;
 };
 
 #endif // MAIN_H

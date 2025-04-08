@@ -21,9 +21,26 @@
 // }
 //TODO debug - delete
 
+void udp_check_reply(ProgramArgs *args, uint16_t messageID) {
+    pid_t pid = fork();
+    if(pid < 0) {
+        exit(1);
+    }
+    else if(pid == 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+        if (!(std::find(args->messageReplysID.begin(), args->messageReplysID.end(), messageID) != args->messageReplysID.end())) {
+            if(args->state != "end") {
+                std::cerr << "Error: Didn't recieve reply of a sent AUTH/JOIN message!" << std::endl;
+                udp_err(args, "No reply was recieved!"); //TODO message
+                args->state = "end";
+            } 
+        }
+        _exit(0);
+    }
+}
+
 void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
     for(int i = 0; i <= args->retry_count; i++) {
-        int sockfd = args->sockfd;
         struct sockaddr_in serverAddr;
         memset(&serverAddr, 0, sizeof(serverAddr));
 
@@ -31,7 +48,7 @@ void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
         serverAddr.sin_addr = args->serverAddr.sin_addr;
         serverAddr.sin_port = htons(args->port);
 
-        ssize_t sentBytes = sendto(sockfd, buffer.data(), buffer.size(), 0,
+        ssize_t sentBytes = sendto(args->sockfd, buffer.data(), buffer.size(), 0,
                                 (struct sockaddr*)&serverAddr, sizeof(serverAddr));
         if (sentBytes < 0) {
             perror("Error sending UDP packet");
@@ -50,6 +67,7 @@ void send_UDP(ProgramArgs *args, const std::vector<uint8_t>& buffer) {
                 args->messageID++;
             } else {
                 if (i == args->retry_count) {
+                    std::cerr << "Error: Didn't recieve confirmation of a sent message!" << std::endl;
                     exit(1); //TODO messages not confirmed
                 }
                 //std::cout << "Message " << args->messageID << " not confirmed yet." << std::endl;
@@ -99,11 +117,13 @@ void udp_auth(ProgramArgs *args) {
 
     //print_buffer(buffer); //TODO debug
     args->state = "auth";
+    uint16_t messageID = args->messageID;
     send_UDP(args, buffer);
+    udp_check_reply(args, messageID);
 }
 
 void udp_join(ProgramArgs *args, std::string channelID) {
-    uint8_t type = 0x03;
+    uint8_t type = 0x03;    
     MessageHeader msgHeader(type, args->messageID);
 
     std::vector<uint8_t> buffer;
@@ -119,7 +139,9 @@ void udp_join(ProgramArgs *args, std::string channelID) {
 
     //print_buffer(buffer); //TODO debug
     args->state = "join";
+    uint16_t messageID = args->messageID;
     send_UDP(args, buffer);
+    udp_check_reply(args, messageID);
 }
 
 void udp_msg(ProgramArgs *args, std::string MessageContent) {
@@ -203,7 +225,7 @@ void* udp_listen(void* arg) {
     while (args->state != "end") {
         ssize_t recv_len = recvfrom(args->sockfd, buffer, sizeof(buffer) - 1, 0, 
                                     (struct sockaddr *)&client_addr, &addr_len);
-        if (recv_len > 0) {
+            if (recv_len > 0) {
             buffer[recv_len] = '\0'; // Ensure null termination
 
             uint8_t type = buffer[0];
@@ -211,12 +233,14 @@ void* udp_listen(void* arg) {
 
             switch (type) {
                 case 0x01: { // Reply
-                    uint8_t result = buffer[3];
+                    uint8_t result = buffer[3]; //TODO never receive reply :(
+                    uint16_t refMessageID = *(uint16_t *)(buffer + 4);
+
 
                     char* ptr = reinterpret_cast<char*>(buffer + 6);
                     std::string messageContent(ptr);
                     
-                    std::cout << "Incoming port: " << ntohs(client_addr.sin_port) << std::endl;
+                    //std::cout << "Incoming port: " << ntohs(client_addr.sin_port) << std::endl;
                     if(result)
                         args->port = ntohs(client_addr.sin_port);
 
@@ -230,6 +254,11 @@ void* udp_listen(void* arg) {
                     else if(args->state == "open") {
                         args->state = "end";
                     }
+
+                    if (std::find(args->messageReplysID.begin(), args->messageReplysID.end(), refMessageID) == args->messageReplysID.end()) {
+                        args->messageReplysID.push_back(refMessageID);
+                    }
+
                     udp_confirm(args, MessageID);
                     break;
                 }

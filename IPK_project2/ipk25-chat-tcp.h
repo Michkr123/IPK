@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <cstring>
 #include <unistd.h>
+#include <chrono>
+#include <thread>
 #include "ipk25-chat.h"
 
 void tcp_auth(ProgramArgs *args);
