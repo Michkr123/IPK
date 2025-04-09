@@ -5,9 +5,11 @@ bool reply = false;
 
 void tcp_check_reply(ProgramArgs *args) {
     pid_t pid = fork();
-    if(pid < 0) 
+    if(pid < 0) {
+        std::cerr << "Failed to create child process!" << std::endl;
         exit(1);
-    if(pid == 0) {
+    }
+    else if(pid == 0) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5000));
         if(reply)
             reply = false;

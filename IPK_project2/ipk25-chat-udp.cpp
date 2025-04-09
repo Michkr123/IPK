@@ -24,6 +24,7 @@
 void udp_check_reply(ProgramArgs *args, uint16_t messageID) {
     pid_t pid = fork();
     if(pid < 0) {
+        std::cerr << "Failed to create child process!" << std::endl;
         exit(1);
     }
     else if(pid == 0) {
@@ -31,7 +32,7 @@ void udp_check_reply(ProgramArgs *args, uint16_t messageID) {
         if (!(std::find(args->messageReplysID.begin(), args->messageReplysID.end(), messageID) != args->messageReplysID.end())) {
             if(args->state != "end") {
                 std::cerr << "Error: Didn't recieve reply of a sent AUTH/JOIN message!" << std::endl;
-                udp_err(args, "No reply was recieved!"); //TODO message
+                udp_err(args, "No reply was recieved!");
                 args->state = "end";
             } 
         }
@@ -279,7 +280,6 @@ void* udp_listen(void* arg) {
                     break;
                 }
                 case 0xFD: {
-                    //std::cout << "ping received" << std::endl;
                     udp_confirm(args, MessageID);
                     break;
                 }
