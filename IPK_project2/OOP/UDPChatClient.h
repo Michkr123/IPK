@@ -5,11 +5,23 @@
 #include <vector>
 #include <cstdint>
 #include <string>
+#include <sys/mman.h>
+
+// Maximum number of IDs stored in shared memory.
+static const size_t MAX_MESSAGE_IDS = 10000;
+
+// Structure to hold an array of message IDs in shared memory.
+struct SharedIDs {
+    size_t count;
+    uint16_t ids[MAX_MESSAGE_IDS];
+};
 
 /**
  * UDPChatClient is a concrete implementation of ChatClient for the UDP protocol.
- * It encapsulates all UDP-specific functions such as sending and receiving
- * messages, confirmation handling, and reply checking.
+ * It encapsulates all UDP-specific functions such as sending/receiving messages,
+ * confirmation handling, and reply checking.
+ *
+ * This implementation uses shared memory (via mmap) for arrays of message IDs.
  */
 class UDPChatClient : public ChatClient {
 public:
@@ -19,7 +31,7 @@ public:
      * @param hostname The server hostname.
      * @param port The server port.
      */
-    UDPChatClient(const std::string &hostname, uint16_t port);
+    UDPChatClient(const std::string &hostname, uint16_t port, int retry_count, int timeout);
 
     /**
      * Destructor for UDPChatClient.
@@ -30,7 +42,7 @@ public:
 
     /**
      * Connects to the server.
-     * For UDP, this may simply initialize the socket as the OS auto-assigns a port.
+     * For UDP, the OS automatically handles binding.
      */
     virtual void connectToServer() override;
 
@@ -81,6 +93,9 @@ public:
      */
     virtual void listen() override;
 
+protected:
+    std::string displayName_;
+
 private:
     /**
      * Sends a UDP packet using the internal socket.
@@ -98,15 +113,20 @@ private:
 
     /**
      * Checks for a reply corresponding to the specified messageID.
-     * This function implements a timeout mechanism (e.g., 5 seconds) using a forked process.
+     * This function implements a timeout mechanism (e.g., 5 seconds) using fork.
      *
      * @param messageID The message ID to check.
      */
     void checkReply(uint16_t messageID);
 
-    // Vectors to track message confirmations and replies, similar to the original implementation.
-    std::vector<uint16_t> seenMessagesID_;
-    std::vector<uint16_t> messageRepliesID_;
+    // Shared memory arrays to track message confirmations and replies.
+    SharedIDs* replyIDs_; // Shared array for storing reply message IDs.
+    SharedIDs* confirmIDs_;  // Shared array for storing confirmation (seen) message IDs.
+
+    // Number of extra times to retry sending if confirmation is not received.
+    int retry_count_;
+    // Maximum time (in milliseconds) to wait for confirmation on each attempt.
+    int timeout_;
 };
 
 #endif // UDP_CHAT_CLIENT_H

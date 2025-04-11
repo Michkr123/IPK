@@ -21,18 +21,43 @@ struct MessageHeader {
 ////////////////////////
 // Constructor & Destructor
 ////////////////////////
-UDPChatClient::UDPChatClient(const std::string &hostname, uint16_t port)
-    : ChatClient(hostname, port)
+UDPChatClient::UDPChatClient(const std::string &hostname, uint16_t port,  int retry_count, int timeout)
+    : ChatClient(hostname, port), 
+      retry_count_(retry_count), 
+      timeout_(timeout)
 {
     // Create a UDP socket.
     sockfd_ = socket(AF_INET, SOCK_DGRAM, 0);
     if (sockfd_ < 0) {
-        perror("Socket creation failed");
+        std::cout << "ERROR: Socket creation failed." << std::endl;
         exit(1);
     }
+
+    // Allocate shared memory for reply IDs.
+    replyIDs_ = static_cast<SharedIDs*>(mmap(nullptr, sizeof(SharedIDs),
+                                PROT_READ | PROT_WRITE,
+                                MAP_SHARED | MAP_ANONYMOUS, -1, 0));
+    if (replyIDs_ == MAP_FAILED) {
+        std::cout << "ERROR: mmap failed for replyIDs." << std::endl;
+        exit(1);
+    }
+    replyIDs_->count = 0;
+
+    // Allocate shared memory for seen IDs.
+    confirmIDs_ = static_cast<SharedIDs*>(mmap(nullptr, sizeof(SharedIDs),
+                                PROT_READ | PROT_WRITE,
+                                MAP_SHARED | MAP_ANONYMOUS, -1, 0));
+    if (confirmIDs_ == MAP_FAILED) {
+        std::cout << "ERROR: mmap failed for confirmIDs." << std::endl;
+        exit(1);
+    }
+    confirmIDs_->count = 0;
 }
 
 UDPChatClient::~UDPChatClient() {
+    // Unmap the shared memory regions.
+    munmap(replyIDs_, sizeof(SharedIDs));
+    munmap(confirmIDs_, sizeof(SharedIDs));
     // The socket is closed in the ChatClient destructor.
 }
 
@@ -40,15 +65,15 @@ UDPChatClient::~UDPChatClient() {
 // Overridden Virtual Methods
 ////////////////////////
 void UDPChatClient::connectToServer() {
-    // For UDP, there is no need for an explicit connection; the OS will auto-bind.
+    // For UDP, no explicit connection is needed; the OS automatically handles binding.
 }
 
 void UDPChatClient::auth(const std::string &username,
                            const std::string &secret,
                            const std::string &displayName) 
 {
-    // Set state to "auth" and get a unique message ID.
     setState("auth");
+    displayName_ = displayName;
     uint16_t msgID = getNextMessageID();
     
     // Message type 0x02 for authentication.
@@ -71,7 +96,6 @@ void UDPChatClient::auth(const std::string &username,
 }
 
 void UDPChatClient::joinChannel(const std::string &channel) {
-    // Set state to "join" and get a new message ID.
     setState("join");
     uint16_t msgID = getNextMessageID();
     
@@ -83,8 +107,10 @@ void UDPChatClient::joinChannel(const std::string &channel) {
     // Append channel name followed by a null terminator.
     buffer.insert(buffer.end(), channel.begin(), channel.end());
     buffer.push_back('\0');
+
+    buffer.insert(buffer.end(), displayName_.begin(), displayName_.end());
+    buffer.push_back('\0');
     
-    // You may also wish to append a display name here.
     sendUDP(buffer);
     checkReply(msgID);
 }
@@ -97,12 +123,18 @@ void UDPChatClient::sendMessage(const std::string &message) {
     MessageHeader header(type, msgID);
     std::vector<uint8_t> buffer(reinterpret_cast<uint8_t*>(&header),
                                 reinterpret_cast<uint8_t*>(&header) + sizeof(header));
-    // Append the message content followed by a null terminator.
+    
+    // Insert the display name (stored in displayName_) followed by a null terminator.
+    buffer.insert(buffer.end(), displayName_.begin(), displayName_.end());
+    buffer.push_back('\0');
+    
+    // Append the actual message content, followed by a null terminator.
     buffer.insert(buffer.end(), message.begin(), message.end());
     buffer.push_back('\0');
 
     sendUDP(buffer);
 }
+
 
 void UDPChatClient::sendError(const std::string &error) {
     setState("end");
@@ -113,6 +145,10 @@ void UDPChatClient::sendError(const std::string &error) {
     MessageHeader header(type, msgID);
     std::vector<uint8_t> buffer(reinterpret_cast<uint8_t*>(&header),
                                 reinterpret_cast<uint8_t*>(&header) + sizeof(header));
+    
+    buffer.insert(buffer.end(), displayName_.begin(), displayName_.end());
+    buffer.push_back('\0');
+
     // Append error message (null terminated).
     buffer.insert(buffer.end(), error.begin(), error.end());
     buffer.push_back('\0');
@@ -129,17 +165,10 @@ void UDPChatClient::bye() {
     MessageHeader header(type, msgID);
     std::vector<uint8_t> buffer(reinterpret_cast<uint8_t*>(&header),
                                 reinterpret_cast<uint8_t*>(&header) + sizeof(header));
-    sendUDP(buffer);
-}
-
-void UDPChatClient::ping() {
-    uint16_t msgID = getNextMessageID();
     
-    // Message type 0xFD for ping.
-    uint8_t type = 0xFD;
-    MessageHeader header(type, msgID);
-    std::vector<uint8_t> buffer(reinterpret_cast<uint8_t*>(&header),
-                                reinterpret_cast<uint8_t*>(&header) + sizeof(header));
+    buffer.insert(buffer.end(), displayName_.begin(), displayName_.end());
+    buffer.push_back('\0');
+
     sendUDP(buffer);
 }
 
@@ -147,12 +176,43 @@ void UDPChatClient::ping() {
 // Private Helper Methods
 ////////////////////////
 void UDPChatClient::sendUDP(const std::vector<uint8_t> &buffer) {
-    // Prepare the server address from the stored serverAddr_.
-    struct sockaddr_in addr = serverAddr_;
-    ssize_t sentBytes = sendto(sockfd_, buffer.data(), buffer.size(), 0,
-                               (struct sockaddr *)&addr, sizeof(addr));
-    if (sentBytes < 0) {
-        perror("Error sending UDP packet");
+    // Extract the message ID from the header.
+    // Our header layout: byte 0 = type, bytes 1-2 = messageID.
+    uint8_t type = *reinterpret_cast<const uint8_t*>(buffer.data());
+    uint16_t msgID = *reinterpret_cast<const uint16_t*>(buffer.data() + 1);
+    
+    int attempts = 0;
+    bool confirmed = false;
+    
+    while (attempts <= retry_count_ && !confirmed) {
+        // Send the UDP packet.
+        struct sockaddr_in addr = serverAddr_;
+        ssize_t sentBytes = sendto(sockfd_, buffer.data(), buffer.size(), 0,
+                                   reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
+        if (sentBytes < 0) {
+            std::cout << "ERROR: Error sending UDP packet" << std::endl;
+        }
+        if(type == 0x00) 
+            return;
+        
+        // Sleep for the full timeout period (without intermediate checks).
+        std::this_thread::sleep_for(std::chrono::milliseconds(timeout_));
+        
+        // Also check the confirmIDs_ array (confirmation messages may be stored there).
+        if (!confirmed) {
+            for (size_t i = 0; i < confirmIDs_->count; i++) {
+                if (confirmIDs_->ids[i] == msgID) {
+                    confirmed = true;
+                    break;
+                }
+            }
+        }
+    }
+    
+    if (!confirmed) {
+        std::cout << "ERROR: No confirmation received." << std::endl;
+        sendError("No reply was received.");
+        setState("end");
     }
 }
 
@@ -169,23 +229,27 @@ void UDPChatClient::checkReply(uint16_t messageID) {
     // Fork a child process to wait for a reply with a timeout.
     pid_t pid = fork();
     if (pid < 0) {
-        std::cerr << "Failed to create child process in checkReply!" << std::endl;
+        std::cout << "ERROR: Failed to create child process!" << std::endl;
         exit(1);
     } else if (pid == 0) {
         // In the child process, wait 5 seconds.
         std::this_thread::sleep_for(std::chrono::milliseconds(5000));
-        // Check if the reply corresponding to messageID has been received.
-        if (std::find(messageRepliesID_.begin(), messageRepliesID_.end(), messageID) == messageRepliesID_.end()) {
-            if (getState() != "end") {
-                std::cerr << "Error: Didn't receive reply for message ID " << messageID << std::endl;
-                // Use sendError to notify the error.
-                sendError("No reply was received!");
-                setState("end");
+        bool found = false;
+        for (size_t i = 0; i < replyIDs_->count; i++) {
+            if (replyIDs_->ids[i] == messageID) {
+                found = true;
+
+                break;
             }
+        }
+        if (!found && getState() != "end") {
+            std::cout << "Error: Didn't receive reply." << std::endl;
+            sendError("No reply was received!");
+            setState("end");
         }
         _exit(0);
     }
-    // The parent process continues normally.
+    // Parent process continues.
 }
 
 ////////////////////////
@@ -198,48 +262,66 @@ void UDPChatClient::listen() {
 
     while (getState() != "end") {
         ssize_t recvLen = recvfrom(sockfd_, buffer, sizeof(buffer) - 1, 0,
-                                   (struct sockaddr*)&clientAddr, &addrLen);
+                                   reinterpret_cast<struct sockaddr*>(&clientAddr), &addrLen);
         if (recvLen > 0) {
-            // Null-terminate the buffer.
-            buffer[recvLen] = '\0';
+            buffer[recvLen] = '\0'; // Null-terminate the buffer
+
+            // Immediately update server port if different.
+            if (serverAddr_.sin_port != clientAddr.sin_port)
+                serverAddr_.sin_port = clientAddr.sin_port;
+
             // The first byte is the message type.
-            uint8_t type = buffer[0];
+            uint8_t msgType = buffer[0];
             // The next 2 bytes represent the message ID.
             uint16_t recvMessageID = *(reinterpret_cast<uint16_t*>(buffer + 1));
             
-            // Process the received message based on its type.
-            switch (type) {
-                case 0x01: { // Reply
+            switch (msgType) {
+                case 0x01: { // Reply message
                     uint8_t result = buffer[3]; // Result flag.
                     uint16_t refMessageID = *(reinterpret_cast<uint16_t*>(buffer + 4));
-                    // Message content starts at byte 6.
-                    char* ptr = reinterpret_cast<char*>(buffer + 6);
-                    std::string msgContent(ptr);
 
-                    std::cout << "Reply: " << (result ? "Success: " : "Failure: ") << msgContent << std::endl;
+                    char* p = reinterpret_cast<char*>(buffer + 6);
+                    std::string replyText(p);
                     
-                    // Update state if necessary.
-                    if (getState() == "auth" && result)
-                        setState("open");
-                    else if (getState() == "join")
+                    std::cout << "Action " 
+                              << (result ? "Success: " : "Failure: ") 
+                              << replyText << std::endl;
+                    
+                    // Update state.
+                    if ((getState() == "auth" && result) || getState() == "join")
                         setState("open");
                     else if (getState() == "open")
                         setState("end");
 
-                    // Record the reply if not already present.
-                    if (std::find(messageRepliesID_.begin(), messageRepliesID_.end(), refMessageID) == messageRepliesID_.end()) {
-                        std::cout << "Pushing ID " << refMessageID << std::endl;
-                        messageRepliesID_.push_back(refMessageID);
+                    // Store the reply's reference message ID in replyIDs_ if not already stored.
+                    bool exists = false;
+                    for (size_t i = 0; i < replyIDs_->count; i++) {
+                        if (replyIDs_->ids[i] == refMessageID) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists) {
+                        if (replyIDs_->count < MAX_MESSAGE_IDS) {
+                            replyIDs_->ids[replyIDs_->count++] = refMessageID;
+                        } else {
+                            std::cout << "ERROR: Reply ID array is full!" << std::endl;
+                            setState("end");
+                        }
                     }
                     
-                    // Send confirmation.
+                    // Send confirmation using the header message ID.
                     confirm(recvMessageID);
                     break;
                 }
-                case 0x04: { // Regular message
-                    char* ptr = reinterpret_cast<char*>(buffer + 3);
-                    std::string message(ptr);
-                    std::cout << "Message: " << message << std::endl;
+                case 0x04: { // Regular chat message
+                    // Starting at byte 3: first field is display name.
+                    char* p = reinterpret_cast<char*>(buffer + 3);
+                    std::string dispName(p);
+                    p += dispName.size() + 1; // Advance pointer to skip display name and its null.
+                    // Next field is the message content.
+                    std::string message(p);
+                    std::cout << dispName << ": " << message << std::endl;
                     confirm(recvMessageID);
                     break;
                 }
@@ -248,9 +330,13 @@ void UDPChatClient::listen() {
                     break;
                 }
                 case 0xFE: { // Error
-                    char* ptr = reinterpret_cast<char*>(buffer + 3);
-                    std::string errorMsg(ptr);
-                    std::cerr << "Error: " << errorMsg << std::endl;
+                    // Starting at byte 3: first field is display name.
+                    char* p = reinterpret_cast<char*>(buffer + 3);
+                    std::string dispName(p);
+                    p += dispName.size() + 1; // Skip display name.
+                    // Next field is the error message.
+                    std::string errorMsg(p);
+                    std::cout << "ERROR FROM " << dispName << ": " << errorMsg << std::endl;
                     confirm(recvMessageID);
                     setState("end");
                     break;
@@ -261,18 +347,31 @@ void UDPChatClient::listen() {
                     break;
                 }
                 case 0x00: { // Confirmation
-                    // Add the confirmation messageID to seen messages.
-                    if (std::find(seenMessagesID_.begin(), seenMessagesID_.end(), recvMessageID) == seenMessagesID_.end()) {
-                        seenMessagesID_.push_back(recvMessageID);
+                    // For confirmation messages, we record the message ID in the seenIDs_ array.
+                    bool exists = false;
+                    for (size_t i = 0; i < confirmIDs_->count; i++) {
+                        if (confirmIDs_->ids[i] == recvMessageID) {
+                            exists = true;
+                            break;
+                        }
+                    }
+                    if (!exists) {
+                        if (confirmIDs_->count < MAX_MESSAGE_IDS) {
+                            confirmIDs_->ids[confirmIDs_->count++] = recvMessageID;
+                        } else {
+                            std::cout << "ERROR: confirm messages array is full!" << std::endl;
+                            setState("end");
+                        }
                     }
                     break;
                 }
                 default:
-                    std::cout << "Unknown message type received." << std::endl;
+                    std::cout << "ERROR: malformed message received." << std::endl;
+                    setState("end");
                     break;
             }
         } else if (recvLen < 0) {
-            perror("Error receiving UDP message");
+            std::cout << "ERROR: Error receiving UDP message." << std::endl;
         }
     }
 }

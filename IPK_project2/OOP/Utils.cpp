@@ -12,8 +12,7 @@ Options parseArguments(int argc, char *argv[]) {
     Options opts;
     int c;
     
-    // Use getopt to parse flags: -t for protocol, -s for hostname, -p for port.
-    while ((c = getopt(argc, argv, "t:s:p:")) != -1) {
+    while ((c = getopt(argc, argv, "t:s:p:d:r:")) != -1) {
         switch(c) {
             case 't':
                 opts.protocol = optarg;
@@ -26,6 +25,22 @@ Options parseArguments(int argc, char *argv[]) {
                     opts.port = static_cast<uint16_t>(std::stoi(optarg));
                 } catch (const std::invalid_argument&) {
                     std::cerr << "Invalid port number provided." << std::endl;
+                    exit(1);
+                }
+                break;
+            case 'd':
+                try {
+                    opts.timeout = static_cast<uint16_t>(std::stoi(optarg));
+                } catch (const std::invalid_argument&) {
+                    std::cerr << "Invalid timeout provided." << std::endl;
+                    exit(1);
+                }
+                break;
+            case 'r':
+                try {
+                    opts.retry_count = static_cast<uint8_t>(std::stoi(optarg));
+                } catch (const std::invalid_argument&) {
+                    std::cerr << "Invalid retry count provided." << std::endl;
                     exit(1);
                 }
                 break;

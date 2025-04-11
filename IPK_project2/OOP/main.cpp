@@ -12,10 +12,9 @@
 
 // Simple help message
 void help() {
-    std::cout << "Usage: ./chatClient -t <protocol> -s <hostname> [-p <port>]\n";
+    std::cout << "Usage: ./chatClient -t <protocol> -s <hostname/IP>\n";
     std::cout << "       protocol: udp or tcp\n";
-    std::cout << "       hostname: server hostname\n";
-    std::cout << "       port    : server port (optional, default is 4567)\n";
+    std::cout << "       hostname: server hostname or ip\n";
     exit(0);
 }
 
@@ -34,15 +33,11 @@ int main(int argc, char *argv[]) {
         std::cerr << "Error: Protocol and hostname must be provided.\n";
         help();
     }
-    // If port was not specified in opts, use default 4567.
-    if (opts.port == 0) {
-        opts.port = 4567;
-    }
 
     // Create the appropriate ChatClient instance based on the protocol.
     std::unique_ptr<ChatClient> client;
     if (opts.protocol == "udp") {
-        client = std::make_unique<UDPChatClient>(opts.hostname, opts.port);
+        client = std::make_unique<UDPChatClient>(opts.hostname, opts.port, opts.retry_count, opts.timeout);
     } else if (opts.protocol == "tcp") {
         client = std::make_unique<TCPChatClient>(opts.hostname, opts.port);
     } else {
@@ -105,11 +100,16 @@ int main(int argc, char *argv[]) {
                 client->sendError(errorMsg);
             }
         }
+        else if (tokens[0] == "/rename" && tokens.size() == 2) {
+            if (tokens[1].size() <= 20 && isPrintableChar(tokens[1])) { 
+                client->rename(tokens[1]);
+            }
+            else {
+                std::cout << "ERROR: Name is too long or containing invalid characters!" << std::endl;
+            }
+        }
         else if (tokens[0] == "/bye") {
             client->bye();
-        }
-        else if (tokens[0] == "/ping") {
-            client->ping();
         }
         else if (tokens[0][0] != '/') {
             // Treat input as a normal message if state is "open".

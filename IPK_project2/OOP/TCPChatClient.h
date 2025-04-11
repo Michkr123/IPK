@@ -79,9 +79,6 @@ public:
      */
     virtual void listen() override;
 
-protected:
-    // This member variable stores the user-provided display name.
-    std::string displayName_;
 
 private:
     /**
@@ -98,7 +95,7 @@ private:
     void checkReply();
 
     // Add a member to track whether a reply has been received
-    bool replyReceived_;
+    bool *replyReceived_;
 };
 
 #endif // TCP_CHAT_CLIENT_H

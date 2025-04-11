@@ -11,8 +11,18 @@
 
 // Constructor
 TCPChatClient::TCPChatClient(const std::string &hostname, uint16_t port)
-    : ChatClient(hostname, port), replyReceived_(false)
+    : ChatClient(hostname, port)
 {
+    replyReceived_ = static_cast<bool*>(mmap(nullptr, sizeof(bool),
+                                            PROT_READ | PROT_WRITE,
+                                            MAP_SHARED | MAP_ANONYMOUS,
+                                            -1, 0));
+    if (replyReceived_ == MAP_FAILED) {
+        perror("mmap failed");
+        exit(1);
+    }
+    *replyReceived_ = false;
+
     // Create a TCP socket.
     sockfd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd_ < 0) {
@@ -46,6 +56,8 @@ void TCPChatClient::sendTCP(const std::string &message) {
 
 // Helper: Forks a process to check for a reply within 5 seconds.
 void TCPChatClient::checkReply() {
+    *replyReceived_ = false;
+
     pid_t pid = fork();
     if (pid < 0) {
         std::cerr << "Failed to create child process in checkReply!" << std::endl;
@@ -53,7 +65,7 @@ void TCPChatClient::checkReply() {
     } else if (pid == 0) {
         // In the child process, wait 5 seconds.
         std::this_thread::sleep_for(std::chrono::milliseconds(5000));
-        if (!replyReceived_) {
+        if (!*replyReceived_) {
             std::cerr << "Error: no reply was received!" << std::endl;
             sendError("Didn't receive a reply message!");
             setState("end");
@@ -113,7 +125,7 @@ void TCPChatClient::listen() {
                     setState("open");
                 }
                 // Mark that a reply was received.
-                replyReceived_ = true;
+                *replyReceived_ = true;
             }
             else if (command == "MSG") {
                 std::string from, displayName, is;
@@ -158,7 +170,7 @@ void TCPChatClient::auth(const std::string &username,
     std::string message = "AUTH " + username + " AS " + displayName + " USING " + secret + "\r\n";
     sendTCP(message);
     // Initialize replyReceived_ flag to false before checking for reply.
-    replyReceived_ = false;
+    *replyReceived_ = false;
     checkReply();
 }
 
@@ -169,7 +181,7 @@ void TCPChatClient::joinChannel(const std::string &channel) {
     // For simplicity, we assume displayName is stored in ChatClient::state_
     std::string message = "JOIN " + channel + " AS " + "User" + "\r\n"; // Adjust displayName as needed.
     sendTCP(message);
-    replyReceived_ = false;
+    *replyReceived_ = false;
     checkReply();
 }
 

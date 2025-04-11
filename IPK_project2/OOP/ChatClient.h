@@ -5,6 +5,8 @@
 #include <netinet/in.h>
 #include <cstdint>
 #include <thread>
+#include <sys/mman.h> 
+
 
 /**
  * Abstract base class ChatClient.
@@ -109,6 +111,13 @@ public:
      */
     uint16_t getNextMessageID();
 
+    /**
+     * Changes the name that is displayed.
+     *
+     * @param displayName The new display name.
+     */
+    void rename(const std::string &displayName);
+
 protected:
     std::string hostname_;          // Server hostname.
     uint16_t port_;                 // Server port.
@@ -116,6 +125,8 @@ protected:
     struct sockaddr_in serverAddr_; // Server address structure.
     std::string state_;             // Connection state (e.g., "start", "auth", "open", "end").
     uint16_t messageID_;            // Last used message ID.
+    std::string displayName_;
+
 };
 
 #endif // CHAT_CLIENT_H

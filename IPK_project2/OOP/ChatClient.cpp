@@ -49,7 +49,11 @@ void ChatClient::setState(const std::string &newState) {
 
 // Returns the next unique message ID (pre-increment).
 uint16_t ChatClient::getNextMessageID() {
-    return ++messageID_;
+    return messageID_++;
+}
+
+void ChatClient::rename(const std::string &displayName) {
+    displayName_ = displayName;
 }
 
 // Starts the listener in a new thread.
