@@ -5,8 +5,6 @@
 #include <netinet/in.h>
 #include <cstdint>
 #include <thread>
-#include <sys/mman.h> 
-
 
 /**
  * Abstract base class ChatClient.
@@ -75,11 +73,6 @@ public:
     virtual void bye() = 0;
 
     /**
-     * Sends a ping message.
-     */
-    virtual void ping() = 0;
-
-    /**
      * Listens for incoming messages.
      * This function will be executed in its own thread.
      */
@@ -89,6 +82,11 @@ public:
      * Starts the listener in a new thread.
      */
     virtual void startListener();
+
+    /**
+     * Gracefully ends the connection.
+     */
+    void gracefullEnd();
 
     /**
      * Returns the current state of the connection.

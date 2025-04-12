@@ -34,6 +34,18 @@ ChatClient::ChatClient(const std::string &hostname, uint16_t port)
 ChatClient::~ChatClient() {
     if(sockfd_ != -1) {
         close(sockfd_);
+        sockfd_ = -1;
+    }
+}
+
+void ChatClient::gracefullEnd() {
+    if(sockfd_ != -1) {
+        if (shutdown(sockfd_, SHUT_RDWR) < 0) {
+            std::cout << "ERROR: Shutdown failed!" << std::endl;
+            exit(1);
+        }
+        close(sockfd_);
+        sockfd_ = -1;
     }
 }
 

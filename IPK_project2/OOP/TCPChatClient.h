@@ -69,11 +69,6 @@ public:
     virtual void bye() override;
 
     /**
-     * Sends a ping message.
-     */
-    virtual void ping() override;
-
-    /**
      * Listens for incoming messages on the TCP connection.
      * This function should run in its own thread.
      */
@@ -95,7 +90,7 @@ private:
     void checkReply();
 
     // Add a member to track whether a reply has been received
-    bool *replyReceived_;
+    bool replyReceived = false;
 };
 
 #endif // TCP_CHAT_CLIENT_H

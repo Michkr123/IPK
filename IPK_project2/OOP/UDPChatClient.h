@@ -7,15 +7,6 @@
 #include <string>
 #include <sys/mman.h>
 
-// Maximum number of IDs stored in shared memory.
-static const size_t MAX_MESSAGE_IDS = 10000;
-
-// Structure to hold an array of message IDs in shared memory.
-struct SharedIDs {
-    size_t count;
-    uint16_t ids[MAX_MESSAGE_IDS];
-};
-
 /**
  * UDPChatClient is a concrete implementation of ChatClient for the UDP protocol.
  * It encapsulates all UDP-specific functions such as sending/receiving messages,
@@ -84,17 +75,9 @@ public:
     virtual void bye() override;
 
     /**
-     * Sends a ping message.
-     */
-    virtual void ping() override;
-
-    /**
      * Listens for incoming UDP messages. This will be run in a separate thread.
      */
     virtual void listen() override;
-
-protected:
-    std::string displayName_;
 
 private:
     /**
@@ -120,8 +103,10 @@ private:
     void checkReply(uint16_t messageID);
 
     // Shared memory arrays to track message confirmations and replies.
-    SharedIDs* replyIDs_; // Shared array for storing reply message IDs.
-    SharedIDs* confirmIDs_;  // Shared array for storing confirmation (seen) message IDs.
+    std::vector<uint16_t> replyIDs;
+    std::vector<uint16_t> confirmIDs;
+    std::vector<uint16_t> seenIDs;
+
 
     // Number of extra times to retry sending if confirmation is not received.
     int retry_count_;

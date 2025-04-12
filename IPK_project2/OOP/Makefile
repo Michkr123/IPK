@@ -9,7 +9,7 @@ SOURCES = ChatClient.cpp UDPChatClient.cpp TCPChatClient.cpp main.cpp Utils.cpp
 OBJECTS = $(SOURCES:.cpp=.o)
 
 # Target executable name.
-TARGET = chatClient
+TARGET = ipk25chat-client
 
 all: $(TARGET)
 

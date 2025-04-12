@@ -18,7 +18,7 @@ struct Options {
     uint16_t messageID = 0;
     uint8_t retry_count = 3;
 
-    int32_t sockfd;
+    int32_t sockfd = -1;
     sockaddr_in serverAddr;
 
     std::string state = "start";
