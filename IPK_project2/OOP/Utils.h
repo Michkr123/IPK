@@ -9,24 +9,40 @@
 struct Options {
     std::string protocol;
     std::string hostname;
-    std::string username;
-    std::string secret;
-    std::string displayName;
 
     uint16_t port = 4567;
     uint16_t timeout = 250;
-    uint16_t messageID = 0;
     uint8_t retry_count = 3;
-
-    int32_t sockfd = -1;
-    sockaddr_in serverAddr;
-
-    std::string state = "start";
-
-    std::vector<uint16_t> seenMessagesID;
-    std::vector<uint16_t> messageReplysID;
 };
 
+/**
+ * Prints out help for program execute.
+ */
+void help();
+
+/**
+ * Prints out user commands.
+ */
+void commandHelp();
+
+/**
+ * Parses the command-line arguments into an Options struct.
+ * Supported arguments:
+ * 
+ *   -t <protocol>    (required; e.g., udp or tcp)
+ * 
+ *   -s <hostname/IP> (required; server's hostname or IP)
+ * 
+ *   -p <port>        (optional; default: 4567)
+ * 
+ *   -d <timeout>     (optional; timeout in milliseconds)
+ * 
+ *   -r <retry_count> (optional; maximum number of retransmissions)
+ *
+ * @param argc Number of command-line arguments.
+ * @param argv Array of command-line argument strings.
+ * @return Options struct populated with the parsed values.
+ */
 Options parseArguments(int argc, char *argv[]);
 
 /**
