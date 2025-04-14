@@ -26,8 +26,6 @@ public:
      * Virtual destructor.
      */
     virtual ~ChatClient();
-
-    // Pure virtual functions which must be implemented by derived classes:
     
     /**
      * Connects to the server.
@@ -117,12 +115,12 @@ public:
     void rename(const std::string &displayName);
 
 protected:
-    std::string hostname_;          // Server hostname.
-    uint16_t port_;                 // Server port.
-    int sockfd_;                    // Socket file descriptor.
-    struct sockaddr_in serverAddr_; // Server address structure.
-    std::string state_;             // Connection state (e.g., "start", "auth", "open", "end").
-    uint16_t messageID_;            // Last used message ID.
+    std::string hostname_;
+    uint16_t port_;
+    int sockfd_;
+    struct sockaddr_in serverAddr_;
+    std::string state_;
+    uint16_t messageID_;
     std::string displayName_;
 
 };

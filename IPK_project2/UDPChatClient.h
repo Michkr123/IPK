@@ -7,6 +7,17 @@
 #include <string>
 #include <sys/mman.h>
 
+enum MessageType : uint8_t {
+    TYPE_CONFIRM    = 0x00,
+    TYPE_REPLY      = 0X01,
+    TYPE_AUTH       = 0x02,
+    TYPE_JOIN       = 0x03,
+    TYPE_MSG        = 0x04,
+    TYPE_PING       = 0xFD,
+    TYPE_ERR        = 0xFE,
+    TYPE_BYE        = 0xFF
+};
+
 /**
  * UDPChatClient is a concrete implementation of ChatClient for the UDP protocol.
  * It encapsulates all UDP-specific functions such as sending/receiving messages,
@@ -28,8 +39,6 @@ public:
      * Destructor for UDPChatClient.
      */
     virtual ~UDPChatClient();
-
-    // Overridden virtual methods from ChatClient:
 
     /**
      * Connects to the server.
@@ -102,15 +111,11 @@ private:
      */
     void checkReply(uint16_t messageID);
 
-    // Shared memory arrays to track message confirmations and replies.
-    std::vector<uint16_t> replyIDs;
-    std::vector<uint16_t> confirmIDs;
-    std::vector<uint16_t> seenIDs;
+    std::vector<uint16_t> replyIDs_;
+    std::vector<uint16_t> confirmIDs_;
+    std::vector<uint16_t> seenIDs_;
 
-
-    // Number of extra times to retry sending if confirmation is not received.
     int retry_count_;
-    // Maximum time (in milliseconds) to wait for confirmation on each attempt.
     int timeout_;
 };
 

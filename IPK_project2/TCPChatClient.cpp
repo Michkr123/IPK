@@ -1,4 +1,3 @@
-// TCPChatClient.cpp
 #include "TCPChatClient.h"
 #include <iostream>
 #include <sstream>
@@ -9,11 +8,9 @@
 #include <arpa/inet.h>
 #include <cstdlib>
 
-// Constructor
 TCPChatClient::TCPChatClient(const std::string &hostname, uint16_t port)
     : ChatClient(hostname, port)
 {
-    // Create a TCP socket.
     sockfd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd_ < 0) {
         perror("TCP socket creation failed");
@@ -21,12 +18,14 @@ TCPChatClient::TCPChatClient(const std::string &hostname, uint16_t port)
     }
 }
 
-// Destructor: socket is closed in the base class destructor.
 TCPChatClient::~TCPChatClient() {
-    // Nothing additional required.
+    if (shutdown(sockfd_, SHUT_RDWR) < 0) {
+        std::cerr << "ERROR: Shutdown failed!" << std::endl;
+        exit(1);
+    }
+    close(sockfd_);
 }
 
-// Connect to the server using TCP.
 void TCPChatClient::connectToServer() {
     if (connect(sockfd_, (struct sockaddr*)&serverAddr_, sizeof(serverAddr_)) < 0) {
         std::cerr << "ERROR: Connection failed!" << std::endl;
@@ -35,7 +34,6 @@ void TCPChatClient::connectToServer() {
     }
 }
 
-// Helper: Sends a TCP message.
 void TCPChatClient::sendTCP(const std::string &message) {
     ssize_t bytes_sent = send(sockfd_, message.c_str(), message.length(), 0);
     if (bytes_sent < 0) {
@@ -45,68 +43,71 @@ void TCPChatClient::sendTCP(const std::string &message) {
     }
 }
 
-// Helper: Forks a process to check for a reply within 5 seconds.
 void TCPChatClient::checkReply() {
-    replyReceived = false;
+    replyReceived_ = false;
+    
+    auto startTime = std::chrono::steady_clock::now();
+    const int timeoutMs = 5000;
 
-    // In the child process, wait 5 seconds.
-    std::this_thread::sleep_for(std::chrono::milliseconds(5000));
-    if (!replyReceived) {
-        std::cerr << "ERROR: no reply was received!" << std::endl;
-        sendError("Didn't receive a reply message!");
-        setState("end");
+    while (true) {
+        if (replyReceived_) {
+            break;
+        }
+        auto currentTime = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(currentTime - startTime).count();
+        if (elapsed >= timeoutMs) {
+            std::cout << "ERROR: no reply was received!" << std::endl;
+            sendError("Didn't receive a reply message!");
+            setState("end");
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
 }
 
-// Authenticate command.
 void TCPChatClient::auth(const std::string &username,
                            const std::string &secret,
                            const std::string &displayName) 
 {
     setState("auth");
     displayName_ = displayName;
-    // Build the AUTH message in the form: "AUTH username AS displayName USING secret\r\n"
     std::string message = "AUTH " + username + " AS " + displayName + " USING " + secret + "\r\n";
     sendTCP(message);
-    // Initialize replyReceived_ flag to false before checking for reply.
-    replyReceived = false;
+    replyReceived_ = false;
     checkReply();
 }
 
-// Join channel command.
 void TCPChatClient::joinChannel(const std::string &channel) {
     setState("join");
-    // Build the JOIN message: "JOIN channel AS displayName\r\n"
-    // For simplicity, we assume displayName is stored in ChatClient::state_
-    std::string message = "JOIN " + channel + " AS " + displayName_ + "\r\n"; // Adjust displayName as needed.
+    std::string message = "JOIN " + channel + " AS " + displayName_ + "\r\n";
     sendTCP(message);
-    replyReceived = false;
+    replyReceived_ = false;
     checkReply();
 }
 
-// Send a regular message.
 void TCPChatClient::sendMessage(const std::string &messageContent) {
-    // Replace "displayName_" with the actual member variable holding the user display name.
     std::string message = "MSG FROM " + displayName_ + " IS " + messageContent + "\r\n";
     sendTCP(message);
 }
 
-// Send an error message.
 void TCPChatClient::sendError(const std::string &errorContent) {
     setState("end");
     std::string message = std::string("ERR FROM ") + displayName_ + " IS " + errorContent + "\r\n";
     sendTCP(message);
 }
 
-// Send BYE to terminate the session.
 void TCPChatClient::bye() {
     setState("end");
     std::string message = std::string("BYE FROM ") + displayName_ + "\r\n";
     sendTCP(message);
 }
 
-// Listens for incoming TCP messages.
-// It gathers data until it finds "\r\n", then processes complete lines.
+void TCPChatClient::malformedMessage() {
+    std::cout << "ERROR: malformed message received." << std::endl;
+    sendError("Received malformed message!");
+    setState("end");
+}
+
 void TCPChatClient::listen() {
     char buffer[1024];
     std::string messageBuffer;
@@ -116,16 +117,11 @@ void TCPChatClient::listen() {
         if (bytes_received < 0) {
             std::cerr << "ERROR: Could not receive message" << std::endl;
             break;
-        } else if (bytes_received == 0) {
-            std::cerr << "Server closed the connection" << std::endl;
-            break;
         }
 
-        // Null-terminate the incoming data and append to messageBuffer.
         buffer[bytes_received] = '\0';
-        messageBuffer += buffer;
+        messageBuffer += buffer;        
 
-        // Process complete messages separated by "\r\n".
         size_t pos;
         while ((pos = messageBuffer.find("\r\n")) != std::string::npos && getState() != "end") {
             std::string message = messageBuffer.substr(0, pos);
@@ -134,20 +130,24 @@ void TCPChatClient::listen() {
             std::istringstream iss(message);
             std::string command;
             iss >> command;
+            boost::to_upper(command);
+            std::string extra;
 
             if (command == "REPLY") {
                 std::string result, is;
+                if (!(iss >> result >> is)) {
+                    malformedMessage();
+                    continue;
+                }
                 std::string content;
-                iss >> result >> is;
+                boost::to_upper(is);
                 std::getline(iss, content);
-                std::cout << "Action " << (result == "OK" ? "Succes: " : "Failure: ") << content << std::endl;
-                // if (result == "OK") {
-                //     std::cout << "Success: " << content << std::endl;
-                // } else {
-                //     std::cout << "Failure: " << content << std::endl;
-                // }
+                if (is != "IS" || content.empty() || iss >> extra) {
+                    malformedMessage();
+                    continue;
+                }
+                std::cout << "Action " << (result == "OK" ? "Success:" : "Failure:") << content << std::endl;
 
-                // Update state based on command
                 if (getState() == "join") {
                     setState("open");
                 } else if (getState() == "open") {
@@ -155,16 +155,24 @@ void TCPChatClient::listen() {
                 } else if (getState() == "auth" && result == "OK") {
                     setState("open");
                 }
-                // Mark that a reply was received.
-                replyReceived = true;
+                replyReceived_ = true;
             }
             else if (command == "MSG") {
                 if (getState() != "auth") {
                     std::string from, displayName, is;
+                    if(!(iss >> from >> displayName >> is)) {
+                        malformedMessage();
+                        continue;
+                    }
+                    boost::to_upper(from);
+                    boost::to_upper(is);
                     std::string content;
-                    iss >> from >> displayName >> is;
                     std::getline(iss, content);
-                    std::cout << displayName << ": " << content << std::endl;
+                    if(content.empty() || from != "FROM" || is != "IS" || iss >> extra) {
+                        malformedMessage();
+                        continue;
+                    }
+                    std::cout << displayName << ":" << content << std::endl;
                 }
                 else {
                     sendError("Received message in auth state!");
@@ -173,10 +181,19 @@ void TCPChatClient::listen() {
             }
             else if (command == "ERR") {
                 std::string from, displayName, is;
+                if(!(iss >> from >> displayName >> is)) {
+                    malformedMessage();
+                    continue;
+                }
+                boost::to_upper(from);
+                boost::to_upper(is);
                 std::string content;
-                iss >> from >> displayName >> is;
                 std::getline(iss, content);
-                std::cerr << "ERROR FROM " << displayName << ": " << content << std::endl;
+                if(content.empty() || from != "FROM" || is != "IS" || iss >> extra) {
+                    malformedMessage();
+                    continue;
+                }
+                std::cout << "ERROR FROM " << displayName << ":" << content << std::endl;
                 setState("end");
             }
             else if (command == "BYE") {

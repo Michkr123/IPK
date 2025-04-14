@@ -1,17 +1,19 @@
-CC = g++
-CFLAGS = -Wall -Wextra -std=c++17
-TARGET = ipk25-chat
-SRC = ipk25-chat.cpp ipk25-chat-udp.cpp ipk25-chat-tcp.cpp
+CXX = g++
+CXXFLAGS = -std=c++17 -Wall -Wextra -O2
 
-OBJ = $(SRC:.cpp=.o)
+SOURCES = ChatClient.cpp UDPChatClient.cpp TCPChatClient.cpp main.cpp Utils.cpp
+
+OBJECTS = $(SOURCES:.cpp=.o)
+
+TARGET = ipk25chat-client
 
 all: $(TARGET)
 
-$(TARGET): $(OBJ)
-	$(CC) $(CFLAGS) -o $(TARGET) $(OBJ)
+$(TARGET): $(OBJECTS)
+	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJECTS)
 
 %.o: %.cpp
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(TARGET) $(OBJ) 
+	rm -f $(OBJECTS) $(TARGET)

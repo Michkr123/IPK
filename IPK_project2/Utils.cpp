@@ -49,7 +49,7 @@ Options parseArguments(int argc, char *argv[]) {
                 try {
                     opts.port = static_cast<uint16_t>(std::stoi(optarg));
                 } catch (const std::invalid_argument&) {
-                    std::cerr << "Invalid port number provided." << std::endl;
+                    std::cout << "ERROR: Invalid port number provided." << std::endl;
                     exit(1);
                 }
                 break;
@@ -57,7 +57,7 @@ Options parseArguments(int argc, char *argv[]) {
                 try {
                     opts.timeout = static_cast<uint16_t>(std::stoi(optarg));
                 } catch (const std::invalid_argument&) {
-                    std::cerr << "Invalid timeout provided." << std::endl;
+                    std::cout << "ERROR: Invalid timeout provided." << std::endl;
                     exit(1);
                 }
                 break;
@@ -65,7 +65,7 @@ Options parseArguments(int argc, char *argv[]) {
                 try {
                     opts.retry_count = static_cast<uint8_t>(std::stoi(optarg));
                 } catch (const std::invalid_argument&) {
-                    std::cerr << "Invalid retry count provided." << std::endl;
+                    std::cout << "ERROR: Invalid retry count provided." << std::endl;
                     exit(1);
                 }
                 break;
@@ -113,22 +113,3 @@ bool isValidMessage(const std::string &message) {
     }
     return true;
 }
-
-// void resolve_hostname(const std::string &hostname, uint16_t port, struct sockaddr_in &serverAddr) {
-//     struct addrinfo hints, *res;
-//     std::memset(&hints, 0, sizeof(hints));
-//     hints.ai_family = AF_INET;
-//     hints.ai_socktype = SOCK_STREAM;
-
-//     if (getaddrinfo(hostname.c_str(), nullptr, &hints, &res) != 0) {
-//          std::cerr << "Error: No such host found: " << hostname << std::endl;
-//          exit(1);
-//     }
-    
-//     struct sockaddr_in *ipv4 = reinterpret_cast<struct sockaddr_in *>(res->ai_addr);
-//     serverAddr.sin_family = AF_INET;
-//     serverAddr.sin_addr = ipv4->sin_addr;
-//     serverAddr.sin_port = htons(port);
-    
-//     freeaddrinfo(res);
-// }

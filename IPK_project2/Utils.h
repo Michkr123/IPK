@@ -79,13 +79,4 @@ bool isPrintableChar(const std::string &str);
  */
 bool isValidMessage(const std::string &message);
 
-/**
- * Resolves a hostname and fills in a sockaddr_in structure.
- *
- * @param hostname The hostname to resolve.
- * @param port The port number.
- * @param serverAddr The sockaddr_in structure to fill.
- */
-void resolve_hostname(const std::string &hostname, uint16_t port, struct sockaddr_in &serverAddr);
-
 #endif // UTILS_H

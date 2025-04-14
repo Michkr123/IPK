@@ -10,10 +10,11 @@
 #include <csignal>
 
 int tcp_sockfd_global = -1;
+std::unique_ptr<ChatClient> client;
 
 int main(int argc, char *argv[]) {
-    // Set up signal handling for CTRL + C causing graceful termination
     std::signal(SIGINT, [](int) {
+        client->bye();
         if (tcp_sockfd_global != -1) {
             if (shutdown(tcp_sockfd_global, SHUT_RDWR) < 0) {
                 std::cerr << "ERROR: Shutdown failed!" << std::endl;
@@ -35,8 +36,6 @@ int main(int argc, char *argv[]) {
         help();
     }
 
-    // Create the ChatClient instance based on the chosen protocol
-    std::unique_ptr<ChatClient> client;
     if (opts.protocol == "udp") {
         client = std::make_unique<UDPChatClient>(opts.hostname, opts.port, opts.retry_count, opts.timeout);
     } else if (opts.protocol == "tcp") {
@@ -48,22 +47,16 @@ int main(int argc, char *argv[]) {
 
     client->connectToServer();
 
-    // Start the listener in a separate thread
     client->startListener();
 
-    // stdin commands loop:
-    // Commands:
-    //   /auth <username> <secret> <displayName>
-    //   /join <channel>
-    //   /bye
-    //   /ping
-    // If a line does not start with '/', it is considered a normal message.
     std::string input;
     while (client->getState() != "end") {
-        std::getline(std::cin, input);
-        if (input.empty()) continue;
+        if (!std::getline(std::cin, input)) {
+            client->bye();
+            exit(0);
+        }
 
-        // Split the input into tokens
+        if (input.empty()) continue;
         std::vector<std::string> tokens = split(input);
         if (tokens.empty()) continue;
 
@@ -73,7 +66,6 @@ int main(int argc, char *argv[]) {
                 std::string secret   = tokens[2];
                 std::string displayName     = tokens[3];
 
-                // Validate lengths and characters
                 if (username.size() <= 20 && secret.size() <= 128 && displayName.size() <= 20) {
                     if (isValidString(username) && isValidString(secret) && isPrintableChar(displayName)) {
                         client->auth(username, secret, displayName);

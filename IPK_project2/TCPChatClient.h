@@ -1,9 +1,9 @@
-// TCPChatClient.h
 #ifndef TCP_CHAT_CLIENT_H
 #define TCP_CHAT_CLIENT_H
 
 #include "ChatClient.h"
 #include <string>
+#include <boost/algorithm/string.hpp>
 
 /**
  * TCPChatClient is a concrete implementation of ChatClient for the TCP protocol.
@@ -74,7 +74,6 @@ public:
      */
     virtual void listen() override;
 
-
 private:
     /**
      * Sends a message using TCP.
@@ -89,8 +88,12 @@ private:
      */
     void checkReply();
 
-    // Add a member to track whether a reply has been received
-    bool replyReceived = false;
+    /**
+     * Handles malformed messages error
+     */
+    void malformedMessage();
+
+    bool replyReceived_ = false;
 };
 
 #endif // TCP_CHAT_CLIENT_H
