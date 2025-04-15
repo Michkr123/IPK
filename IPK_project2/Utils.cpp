@@ -29,7 +29,6 @@ void commandHelp() {
     std::cout << "  /auth {Username} {Secret} {DisplayName} - Autorises to the server. (use once)" << std::endl;
     std::cout << "  /join {ChannelID}                       - Changes the channel." << std::endl;
     std::cout << "  /rename {DisplayName}                   - Changes the display name." << std::endl;
-    std::cout << "  /err {MessageContent}                   - Sends error to the server." << std::endl;
     std::cout << "  /bye                                    - disconnects from the server." << std::endl;
     std::cout << "  {messageContent}                        - Sends message." << std::endl;
 }

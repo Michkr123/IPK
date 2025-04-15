@@ -1,7 +1,23 @@
 # IPK project 2 - client for a chat server 
 ## Úvod
 
-Tento projekt implementuje klient pro chatovací server využívající IPK25CHAT protokol.
+Tento projekt implementuje klienta pro chatovací server, který využívá protokol IPK25CHAT. Cílem projektu je vytvořit spolehlivého klienta, který umožňuje uživateli komunikovat se serverem pomocí textových zpráv, připojovat se do různých kanálů a přijímat odpovědi od serveru a adekvátně na ně reagovat. 
+
+Klient podporuje dvě varianty komunikace – pomocí protokolu TCP a UDP.
+
+Projekt je navržen tak, aby:
+- <b>Zabezpečil spolehlivou komunikaci</b>: U TCP zajištěna spojením, u UDP klient po odeslání zprávy čeká na potvrzení nebo odpověď od serveru, přičemž využívá mechanismy pro opakované odesílání v případě, že potvrzovací zpráva není obdržena v určeném časovém intervalu.
+
+- <b>Poskytoval jasné a uživatelsky přívětivé rozhraní</b>: Uživateli umožnil komunikovat se serverem pomocí předem pevně stanovených příkazů. Klient reaguje odesíláním požadovaných zpráv.
+
+- <b>Zpracování uživatelského vstupu</b>:  Klient zpracovává jeden po druhém příkazy ze standartího vstupu, kontroluje správnost jejich užití a parametrů a následně připraví data vzhledem k použitému protokolu a odesílá je serveru.
+
+- <b>Zpracování serverových zpráv</b>: Přijímá zprávy ze serveru vzhledem k použitému protokolu, zpracovává je a vypisuje do standardního výstupu.
+
+
+Použitý IPK25CHAT protokol byl definován s ohledem na efektivní přenos dat, spolehlivost komunikace i robustnost při selhání – např. klient i server spolu komunikují pomocí předem daných zpráv s pevně stanovenou strukturou, kde jsou důležitými komponentami typ zprávy a identifikátor zprávy. Tyto prvky jsou při odesílání převedeny do síťového pořadí, což zajišťuje, že data budou interpretována správně bez ohledu na platformu.
+
+Celkově tento projekt představuje komplexní řešení pro implementaci chatovacího klienta, jehož hlavním přínosem je ukázka správného řízení síťové komunikace, obsluhy chyb a synchronního zpracování uživatelských příkazů při komunikaci se serverem. Projekt tak slouží nejen jako praktická aplikace, ale i jako učební pomůcka pro pochopení zásad sítové komunikace pomocí protokolů TCP a UDP.
 
 ### Překlad a spuštění
     
@@ -42,7 +58,7 @@ Z toho lze vyčíst parametry, které musí uživatel zadat. Těmi jsou <b>volba
 Dále volitelné parametry <b>hostitelského portu</b>, <b>délku času čekání na potvrzovací zprávu</b> a <b>počet dodatečných pokusů pro odeslání zprávy</b>.
 
 Pokud uživatel nezadá volitelné parametry, použijí se výchozí, kterými jsou:
-port: 4567
+port:4567
 timeout: 250ms
 retransmisions:3
 
@@ -63,7 +79,6 @@ Při kterém se změní display name lokálně a pošle se v další zprávě se
 /auth {Username} {Secret} {DisplayName} - Autorises to the server. (use once)
 /join {ChannelID}                       - Changes the channel.
 /rename {DisplayName}                   - Changes the display name.
-/err {MessageContent}                   - Sends error to the server.
 /bye                                    - disconnects from the server.
 {messageContent}                        - Sends message.
 ```
@@ -147,21 +162,40 @@ Tato třída implementuje komunikaci se serverem pomocí UDP. Specifické funkce
 
 Tato třída implementuje komunikaci pomocí TCP, kde se využívá explicitní navázání spojení (connect()) a odesílání/příjem dat pomocí funkcí send()/recv().
 Důležité implementační prvky této části jsou:
-- Case-insensitive zpracování 
-- Kontrola odpovědí:
+- <b>Case-insensitive zpracování</b>
+- <b>Kontrola odpovědí</b>:
 Mechanismus čekání na potvrzení či odpověď je implementován pomocí polling smyčky (maximálně 5 sekund, s periodickou kontrolou). Tato metoda umožňuje okamžité ukončení čekání, pokud je odpověď přijata před uplynutím timeoutu.
-
-Signal Handling:
+- <b>Signal Handling</b>:
 Třída obsahuje statickou funkci pro zpracování SIGINT, která provede odeslání zprávy BYE a následný úklid prostřednictvím metody cleanup().
 
 ### UML diagramy / popis zajímavých částí kódu
-- UML diagram tříd, sekvenční diagram nebo jiný diagram znázorňující klíčovou funkcionalitu.
-- Popis významných sekcí zdrojového kódu a jejich logiky.
+Toto je jednoduchý diagram popisující třídy a dědičnost v rámci tohoto projektu. Atributy a metody lze nejsu uvedeny kvůli přehlednosti. Podrobný popis tříd včetně jejich atributů a metod lze nalézt v dokumentaci vygenerovanou pomocí Doxygen.
+
+![class_diagram](/img/classChatClient__inherit__graph.png)
+
+ChatClient obsahuje virtuální metody, které obě dědící třídy ovveride a implementují podle použitého protokolu. Zmíněnými virtuálními metodamy jsou:
+
+- <b>~ChatClient ()</b> - destruktor, který je nutný implementovat v každé metodě zvlášť, jelikož TCP používá connect() a je potřeba ho řádně ukončit. U UDP nevyužito.
+- <b>connectToServer ()</b> - Opět TCP využívá connect(). U UDP nevyužito.
+
+U následujících je stejný důvod pro použití virtuálních metod. Tím důvodem je rozdílnost UDP a TCP co se týče tvorbě, odesílání a přijímání zpráv.
+- <b>auth (const std::string &username, const std::string secret, const std::string &displayName)</b>
+- <b>joinChannel (const std::string &channel)</b>
+- <b>sendMessage (const std::string &message)</b>
+- <b>sendError (const std::string &error)</b>
+- <b>bye ()</b>
+- <b>listen ()</b>
+- <b>startListener ()</b>
 
 ## Testování
 
+#### lokální
+Lokální testování probíhalo pomocí programu Wireshark a programu Netcat. Toto lokální testování sloužilo k ověření správnosti sestavení a odesílaní zpráv klientem.
+
+#### referenční server
+Dále pro testování byl využit referenční server, který byl přiložen právě pro možnost testování svého klienta.
+
 ### Popis testovacího prostředí
-- Hardwarové a softwarové specifikace (operační systém, verze, síťová topologie, použitý hardware).
 
 ### Testovací scénáře
 - Co bylo testováno (hlavní funkcionalita, okrajové případy, robustnost, atd.).
@@ -173,25 +207,6 @@ Třída obsahuje statickou funkci pro zpracování SIGINT, která provede odesl�
 ### Vstupy, očekávané a skutečné výstupy
 - Přehled vstupů, co se očekávalo a co bylo skutečně získáno.
 
-### Porovnání s jiným podobným nástrojem (pokud existuje)
-- Srovnání s alternativními řešeními, popř. odůvodnění vlastního přístupu.
-
-## Extra funkcionality
-
-### Přehled rozšířených funkcí nad rámec zadání
-Stručný popis funkcí a vlastností, které nad rámec standardu přináší váš projekt.
-
-### Důvody implementace extra funkcionalit
-Motivace a přínos jednotlivých rozšíření.
-
-## Bibliografie a použité zdroje
-
-### Seznam literatury a online zdrojů
-- Uveďte všechny použité zdroje, odkazy, knihy, články, případně dokumentaci API.
-- Citace v souladu s pokyny fakulty.
-
-### Použité příklady a ukázky kódu
-- Uveďte zdroje nebo licenci použitých útržků kódu a odkaz na autora.
 
 ## Závěr
 
