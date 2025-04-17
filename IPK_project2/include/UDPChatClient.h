@@ -5,7 +5,14 @@
 #include <vector>
 #include <cstdint>
 #include <string>
-#include <sys/mman.h>
+#include <iostream>
+#include <cstring>
+#include <chrono>
+#include <thread>
+#include <arpa/inet.h>
+#include <unistd.h>
+#include <cstdlib>
+#include <algorithm>
 
 enum MessageType : uint8_t {
     TYPE_CONFIRM    = 0x00,
@@ -22,8 +29,6 @@ enum MessageType : uint8_t {
  * UDPChatClient is a concrete implementation of ChatClient for the UDP protocol.
  * It encapsulates all UDP-specific functions such as sending/receiving messages,
  * confirmation handling, and reply checking.
- *
- * This implementation uses shared memory (via mmap) for arrays of message IDs.
  */
 class UDPChatClient : public ChatClient {
 public:

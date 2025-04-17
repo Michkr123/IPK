@@ -1,19 +1,19 @@
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -Wextra -O2
+CXXFLAGS = -Wall -Wextra -std=c++17 -Iinclude
 
-SOURCES = ChatClient.cpp UDPChatClient.cpp TCPChatClient.cpp main.cpp Utils.cpp
-
-OBJECTS = $(SOURCES:.cpp=.o)
-
+SRC_DIR = src
+INC_DIR = include
+SRC = $(wildcard $(SRC_DIR)/*.cpp)
+OBJ = $(SRC:$(SRC_DIR)/%.cpp=$(SRC_DIR)/%.o)
 TARGET = ipk25chat-client
 
 all: $(TARGET)
 
-$(TARGET): $(OBJECTS)
-	$(CXX) $(CXXFLAGS) -o $(TARGET) $(OBJECTS)
+$(TARGET): $(OBJ)
+	$(CXX) $(CXXFLAGS) -o $@ $^
 
-%.o: %.cpp
+$(SRC_DIR)/%.o: $(SRC_DIR)/%.cpp
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJECTS) $(TARGET)
+	rm -f $(OBJ) $(TARGET)

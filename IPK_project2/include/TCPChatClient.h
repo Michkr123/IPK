@@ -4,6 +4,14 @@
 #include "ChatClient.h"
 #include <string>
 #include <boost/algorithm/string.hpp>
+#include <iostream>
+#include <sstream>
+#include <cstring>
+#include <chrono>
+#include <thread>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <cstdlib>
 
 /**
  * TCPChatClient is a concrete implementation of ChatClient for the TCP protocol.

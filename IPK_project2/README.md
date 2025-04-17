@@ -1,44 +1,31 @@
-# IPK project 2 - client for a chat server 
-## Úvod
+# IPK Project 2 - Client for a Chat Server
+## Introduction
 
-Tento projekt implementuje klienta pro chatovací server, který využívá protokol IPK25CHAT. Cílem projektu je vytvořit spolehlivého klienta, který umožňuje uživateli komunikovat se serverem pomocí textových zpráv, připojovat se do různých kanálů a přijímat odpovědi od serveru a adekvátně na ně reagovat. 
+This project implements a client for a chat server that uses the IPK25CHAT protocol. The goal of the project is to create a reliable client that allows the user to communicate with the server via text messages, join different channels, and receive responses from the server and react to them appropriately.
 
-Klient podporuje dvě varianty komunikace – pomocí protokolu TCP a UDP.
+The client supports two communication variants – using the TCP and UDP protocols.
 
-Projekt je navržen tak, aby:
-- <b>Zabezpečil spolehlivou komunikaci</b>: U TCP zajištěna spojením, u UDP klient po odeslání zprávy čeká na potvrzení nebo odpověď od serveru, přičemž využívá mechanismy pro opakované odesílání v případě, že potvrzovací zpráva není obdržena v určeném časovém intervalu.
+### Compilation and Execution
 
-- <b>Poskytoval jasné a uživatelsky přívětivé rozhraní</b>: Uživateli umožnil komunikovat se serverem pomocí předem pevně stanovených příkazů. Klient reaguje odesíláním požadovaných zpráv.
-
-- <b>Zpracování uživatelského vstupu</b>:  Klient zpracovává jeden po druhém příkazy ze standartího vstupu, kontroluje správnost jejich užití a parametrů a následně připraví data vzhledem k použitému protokolu a odesílá je serveru.
-
-- <b>Zpracování serverových zpráv</b>: Přijímá zprávy ze serveru vzhledem k použitému protokolu, zpracovává je a vypisuje do standardního výstupu.
-
-
-Použitý IPK25CHAT protokol byl definován s ohledem na efektivní přenos dat, spolehlivost komunikace i robustnost při selhání – např. klient i server spolu komunikují pomocí předem daných zpráv s pevně stanovenou strukturou, kde jsou důležitými komponentami typ zprávy a identifikátor zprávy. Tyto prvky jsou při odesílání převedeny do síťového pořadí, což zajišťuje, že data budou interpretována správně bez ohledu na platformu.
-
-Celkově tento projekt představuje komplexní řešení pro implementaci chatovacího klienta, jehož hlavním přínosem je ukázka správného řízení síťové komunikace, obsluhy chyb a synchronního zpracování uživatelských příkazů při komunikaci se serverem. Projekt tak slouží nejen jako praktická aplikace, ale i jako učební pomůcka pro pochopení zásad sítové komunikace pomocí protokolů TCP a UDP.
-
-### Překlad a spuštění
-    
-Zdrojové kódy jsou v hlavní složce společně se souborem Makefile.
-Pro překlad a sestavení projektu tedy stačí použít příkaz:
+The source codes are located in the main folder together with the Makefile.
+To compile and build the project, simply use the command:
 
 ```
 make
 ```
 
-následně se vyvtoří binární soubor ipk25chat-client, který lze spustit například:
+Subsequently, a binary file named ipk25chat-client will be created, which can be executed, for example:
 
 ```
 ./ipk25chat-client
 ```
 
-Bez parametrů však vypíše pouze nápovědu.
+Without parameters, it only prints the help.
 
-### Parametry
+### Parameters
 
-Program poté podporuje tyto parametry:
+The program supports the following parameters:
+
 ```
 Usage: ./chatClient -t <protocol> -s <hostname/IP> -p <port> -d <timeout> -r <retransmissions>
        protocol:          udp or tcp. (required)
@@ -53,166 +40,223 @@ Default values for optional arguments:
        retransmissions:   3
 ```
 
-Z toho lze vyčíst parametry, které musí uživatel zadat. Těmi jsou <b>volba protokolu</b> a <b>IP adresa/název serveru</b>.
 
-Dále volitelné parametry <b>hostitelského portu</b>, <b>délku času čekání na potvrzovací zprávu</b> a <b>počet dodatečných pokusů pro odeslání zprávy</b>.
+From this, it can be deduced which parameters the user must provide. These are the <b>protocol</b> and server <b>IP/hostname</b>.
 
-Pokud uživatel nezadá volitelné parametry, použijí se výchozí, kterými jsou:
-port:4567
+Additional optional parameters are <b>server port</b>, <b>confirmation message timeout</b>, and the number of <b>retries</b> to send a message.
+
+If the user does not provide the optional parameters, the default values are used:
+port: 4567
 timeout: 250ms
-retransmisions:3
+retransmissions: 3
 
-### Příkazy
+### Commands
 
-Klient podoruje několik příkazů, které lze serveru zaslat nebo lokálně provést nějakou akci.
+The client supports several commands that can either be sent to the server or executed locally.
 
-#### Lokální příkazy:
-```
-/rename {DisplayName} - changes the display name localy.
-```
-
-Při kterém se změní display name lokálně a pošle se v další zprávě serveru již aktualizovaný.
-
-#### Serverové příkazy
+#### Local Commands:
 
 ```
-/auth {Username} {Secret} {DisplayName} - Autorises to the server. (use once)
+/rename {DisplayName}       - Changes the display name locally.
+/help                       - Prints out help.
+```
+
+With this command, the display name is changed locally and the next message sent to the server will already use the updated name.
+
+#### Server Commands
+
+```
+/auth {Username} {Secret} {DisplayName} - Authorizes to the server. (use once)
 /join {ChannelID}                       - Changes the channel.
 /rename {DisplayName}                   - Changes the display name.
 /bye                                    - disconnects from the server.
 {messageContent}                        - Sends message.
 ```
 
-Tyto příkazy jsou zpracováný tímto klientem a následně odeslány serveru a to buď pomocí UDP nebo TCP, podle toho, který byl zvolen při spuštění programu.
+These commands are processed by this client and then sent to the server either via UDP or TCP, depending on which one was chosen when the program was started.
 
-## Teoretická část
+## Theoretical Part
 
-### Přehled teoretických základů
+### Overview of Theoretical Foundations
 
-Tento projekt pracuje nad transportními protokoly TCP a UDP, proto pro pochopení tohoto projektu je potřeba pochopení těchto protokolů a toho, jak fungují.
+This project works over the transport protocols TCP and UDP, so for understanding this project it is necessary to understand these protocols and how they work.
 
-To však není v této dokumetnaci zahrnuto. K samostudiu lze využít následující odkazy:
+However, this is not included in this documentation. For self-study, you can use the following links:
 TCP: https://datatracker.ietf.org/doc/html/rfc9293
 UDP: https://datatracker.ietf.org/doc/html/rfc768
 
-### Shrnutí principů implementace
+### Summary of Implementation Principles
 
-Celý projekt je rozdělen do několika hlavních částí, které dohromady zajišťují správnou funkčnost klienta pro chatovací server využívající IPK25CHAT protokol. 
-Níže je popsáno, jak jsou tyto části navzájem propojeny a jaká je jejich role v projektu.
+The entire project is divided into several main parts.
+Below is a description of how these parts are interconnected and what their role in the project is.
 
-### Hlavní program (main.cpp)
+### Main Program (main.cpp)
 
-Tento soubor slouží jako vstupní bod aplikace. Zajišťuje inicializaci programu, načítání argumentů příkazové řádky, nastavení signal handlerů a vytvoření instance klienta (UDPChatClient nebo TCPChatClient) podle zadaného protokolu.
+This file serves as the entry point of the application. It handles program initialization, command-line argument parsing, setting up signal handlers, and creating an instance of the client (UDPChatClient or TCPChatClient) according to the specified protocol.
 
-#### Funkce:
+#### Functions:
 
-Parsování argumentů (s využitím funkcí z modulu utilit – parseArguments()).
+Parsing of arguments (using functions from the utilities module – parseArguments()).
 
-Inicializace a konfigurace (případně nastavení globálních proměnných pro signal handling, jako je například socket pro TCP).
+Initialization and configuration (possibly setting global variables for signal handling, such as a socket for TCP).
 
-Vytvoření a spuštění interaktivní smyčky, ve které se zpracovávají uživatelské příkazy.
+Creation and execution of an interactive loop in which user commands are processed.
 
-Spuštění samostatného vlákna pro naslouchání zpráv ze serveru (metoda startListener()).
+Launching a separate thread for listening to messages from the server (the startListener() method).
 
+#### Utility Functions (utils.h / utils.cpp)
 
-### Pomocné funkce (utils.h / utils.cpp)
-
-Modul utilit obsahuje pomocné funkce, které se opakovaně používají v celém projektu, ať už jde o parsování vstupů, validaci textových řetězců nebo zobrazení nápovědy.
-
-#### Klíčové funkce:
+The utilities module contains helper functions that are repeatedly used throughout the project, whether it is parsing inputs, validating text strings, or displaying help.
+Key Functions:
 
 <b>parseArguments(int argc, char argv[])</b>
-Načítá argumenty příkazové řádky a vytváří strukturu Options s následujícími poli:
-- protocol – požadovaný protokol (udp nebo tcp). (Povinné)
-- hostname – název serveru či IP adresa. (Povinné)
-- port – port serveru (volitelný, výchozí: 4567).
-- timeout – délka čekání na potvrzení u UDP v milisekundách (volitelný, výchozí: 250ms).
-- retry_count – maximální počet retransmisi u UDP (volitelný, výchozí: 3).
+Parses command-line arguments and creates an Options structure with the following fields:
+- protocol – the desired protocol (udp or tcp). (Required)
+- hostname – the server hostname or IP address. (Required)
+- port – the server port (optional, default: 4567).
+- timeout – the UDP confirmation timeout in milliseconds (optional, default: 250ms).
+- retransmissions – maximum number of UDP retransmissions (optional, default: 3).
 
 <b>split(const std::string &str)</b>
-Rozděluje vstupní řetězec podle mezer a vrací vector tokenů.
+Splits the input string by spaces and returns a vector of tokens.
 
 <b>isValidString(), isPrintableChar(), isValidMessage()</b>
-Tyto funkce ověřují, že dané řetězce odpovídají pravidlům (např. délka, povolené znaky).
+These functions verify that the given strings conform to the rules (e.g., length, allowed characters).
 
 <b>help()</b>
-Vypisuje nápovědu pro exekuci programu.
+Displays the help for running the program.
 
 <b>commandHelp()</b>
-Vypisuje nápovědu pro uživatele za běhu.
+Displays the help for the user during runtime.
 
+### Client Logic – ChatClient and Its Derived Classes
 
-### Klientská logika – ChatClient a její odvozené třídy
+The key part of the project is based on inheritance. The entire chat client is implemented as an abstract class ChatClient, from which concrete classes UDPChatClient and TCPChatClient are derived.
 
-Klíčová část projektu je založena na dědičnosti. Celý chat klient je implementován jako abstraktní třída ChatClient, z níž jsou odvozeny konkrétní třídy UDPChatClient a TCPChatClient.
+#### ChatClient (Abstract Class)
 
-#### ChatClient (abstraktní třída)
+This class defines the common interfaces and data members used for communication with the server. It includes the connection state (e.g., "start", "auth", "open", "end"), socket management, message ID generation, and virtual methods for sending messages.
 
-Tato třída definuje společná rozhraní a datové členy používané pro komunikaci se serverem. Zahrnuje stav spojení (např. "start", "auth", "open", "end"), správu socketu, generování identifikátorů zpráv, a virtuální metody pro odesílání zpráv.
+The following classes override the virtual methods of the parent class ChatClient so that they suit the communication of the protocol used, and especially the IPK25CHAT protocol.
 
 #### UDPChatClient
 
-Tato třída implementuje komunikaci se serverem pomocí UDP. Specifické funkce zahrnují:
-- Odesílání zpráv pomocí UDP a kontrolu potvrzení (confirmation) prostřednictvím retry mechanismu s timeouty.
-- Validaci a parsování příchozích zpráv.
-- Použití standardních kontejnerů (std::vector) pro uchovávání identifikátorů (replyIDs, confirmIDs).
-- Mechanismus opakovaného odesílání
+This class implements communication using the UDP protocol, which is essential for constructing outgoing and parsing incoming messages. It further implements waiting for a CONFIRM message and the potential resending of a message.
 
 #### TCPChatClient
 
-Tato třída implementuje komunikaci pomocí TCP, kde se využívá explicitní navázání spojení (connect()) a odesílání/příjem dat pomocí funkcí send()/recv().
-Důležité implementační prvky této části jsou:
-- <b>Case-insensitive zpracování</b>
-- <b>Kontrola odpovědí</b>:
-Mechanismus čekání na potvrzení či odpověď je implementován pomocí polling smyčky (maximálně 5 sekund, s periodickou kontrolou). Tato metoda umožňuje okamžité ukončení čekání, pokud je odpověď přijata před uplynutím timeoutu.
-- <b>Signal Handling</b>:
-Třída obsahuje statickou funkci pro zpracování SIGINT, která provede odeslání zprávy BYE a následný úklid prostřednictvím metody cleanup().
+This class implements communication using the TCP protocol, where messages must adhere to a specified grammar. In other words, it constructs outgoing and parses incoming messages according to this grammar. Additionally, graceful connection termination is implemented here.
 
-### UML diagramy / popis zajímavých částí kódu
-Toto je jednoduchý diagram popisující třídy a dědičnost v rámci tohoto projektu. Atributy a metody lze nejsu uvedeny kvůli přehlednosti. Podrobný popis tříd včetně jejich atributů a metod lze nalézt v dokumentaci vygenerovanou pomocí Doxygen.
+### UML Diagrams / Description of Interesting Code Parts
+
+This is a simple diagram describing the classes and inheritance structure within this project. Attributes and methods are omitted for clarity. A detailed description of the classes, including their attributes and methods, can be found in the documentation generated by Doxygen. If you are interested in additional diagrams, you can find them in the doxygen documentation in the docs folder. If docs folder doesn't exists, run:
+```
+doxygen
+```
+
 
 ![class_diagram](/img/classChatClient__inherit__graph.png)
 
-ChatClient obsahuje virtuální metody, které obě dědící třídy ovveride a implementují podle použitého protokolu. Zmíněnými virtuálními metodamy jsou:
+ChatClient contains virtual methods that both derived classes override and implement according to the protocol used. The mentioned virtual methods are:
 
-- <b>~ChatClient ()</b> - destruktor, který je nutný implementovat v každé metodě zvlášť, jelikož TCP používá connect() a je potřeba ho řádně ukončit. U UDP nevyužito.
-- <b>connectToServer ()</b> - Opět TCP využívá connect(). U UDP nevyužito.
+<b>~ChatClient()</b> – the destructor, which must be implemented separately in each method since TCP uses connect() and must be terminated properly. Not used for UDP.
+<b>connectToServer()</b> – Again, TCP uses connect(). Not used for UDP.
 
-U následujících je stejný důvod pro použití virtuálních metod. Tím důvodem je rozdílnost UDP a TCP co se týče tvorbě, odesílání a přijímání zpráv.
-- <b>auth (const std::string &username, const std::string secret, const std::string &displayName)</b>
-- <b>joinChannel (const std::string &channel)</b>
-- <b>sendMessage (const std::string &message)</b>
-- <b>sendError (const std::string &error)</b>
-- <b>bye ()</b>
-- <b>listen ()</b>
-- <b>startListener ()</b>
+For the following methods, the same reason applies for using virtual methods. The reason is the differences between UDP and TCP regarding message creation, sending, and receiving.
+- <b>auth(const std::string &username, const std::string &secret, const std::string &displayName)</b>
+- <b>joinChannel(const std::string &channel)</b>
+- <b>sendMessage(const std::string &message)</b>
+- <b>sendError(const std::string &error)</b>
+- <b>bye()</b>
+- <b>listen()</b> – loop for receiving messages from the server.
+- <b>startListener()</b> – function for creating the listener thread.
 
-## Testování
+## Testing
 
-#### lokální
-Lokální testování probíhalo pomocí programu Wireshark a programu Netcat. Toto lokální testování sloužilo k ověření správnosti sestavení a odesílaní zpráv klientem.
+#### Local
 
-#### referenční server
-Dále pro testování byl využit referenční server, který byl přiložen právě pro možnost testování svého klienta.
+Local testing was performed using the Wireshark program and Netcat. This local testing served to verify the correctness of the build and the messages sent by the client.
 
-### Popis testovacího prostředí
+#### Reference Server
 
-### Testovací scénáře
-- Co bylo testováno (hlavní funkcionalita, okrajové případy, robustnost, atd.).
-- Důvody, proč byly tyto scénáře zvoleny.
+Furthermore, the provided reference server was used for testing the functionalities of your client.
 
-### Metodika testování
-- Jak byly testy prováděny (automatizované testy, ruční testy, simulace, atd.).
+#### Description of the Test Environment
 
-### Vstupy, očekávané a skutečné výstupy
-- Přehled vstupů, co se očekávalo a co bylo skutečně získáno.
+Testing was carried out on my own computer running Linux.
+More precisely, the distribution used was Ubuntu 24.04.1 LTS.
+The technical specifications are negligible, excluding any extreme conditions.
 
+#### Wireshark + Netcat
 
-## Závěr
+Here, tests were conducted solely to verify whether the correct data is being sent in both of the aforementioned protocols.
+The Netcat program was launched on a specific port and address:
 
-Shrnutí dosažených výsledků a případná doporučení pro budoucí rozšíření či zlepšení projektu.
+```
+nc -4 -t -l -v 127.0.0.1 4567      - for TCP listening
+nc -4 -u -l -v 127.0.0.1 4567      - for UDP listening
+```
 
-## Přílohy (volitelné)
+When listening and running the program with parameters corresponding to the running instance of Netcat, messages can be sent.
 
-Přehled doplňujících materiálů (např. konfigurace testovacího prostředí, podrobnější diagramy, logy testů).Dokumentace projektu
- 
+```
+./ipk25chat-client -t tcp -s localhost    - TCP variant of the client
+./ipk25chat-client -t udp -s localhost    - UDP variant of the client
+```
+
+In the terminal where Netcat is running, one can see the messages sent by the client.
+
+For a closer examination, Wireshark can be launched. It must be started with superuser privileges and then the "loopback" interface should be selected, preferably with the following filter:
+
+```
+tcp.port == 4567     - for TCP
+udp.port == 4567     - for UDP
+```
+
+In the TCP variant, when sending /auth,
+Note: Netcat only receives and does not send anything. The final implementation waits for a REPLY from the server, which it does not receive, and therefore ERR and BYE messages follow.
+
+![tcp_auth_test](img/tcp_auth.png)
+
+In the UDP variant, when sending /auth,
+Note: Netcat only receives and does not send anything. The final implementation waits for a CONFIRM from the server, which it does not receive, and thus the AUTH message is re-sent.
+
+![udp_auth_test](img/udp_auth.png)
+
+This simple test verified whether the messages are properly constructed and sent.
+
+#### Reference Server
+
+Furthermore, individual functionalities specified in the assignment were tested using the reference server.
+
+Testing of TCP variant functionalities:
+
+![tcp_server_test](img/tcp_server_test.png)
+
+Testing of UDP variant functionalities:
+
+![udp_server_test](img/udp_server_test.png)
+
+Some edge cases were verified by tests shared by other students; these tests are not my original work, and therefore they are not listed here.
+
+## Use of AI
+
+Generative AI was used in this project both in the source files and in the documentation. The extent and purpose of its use is explained below.
+
+### Code
+
+In the source files, it was used directly in the commented function headers.
+It was further used to broaden the perspective in solving various subproblems, although not for generating the code itself.
+Later, it assisted in refactoring the code, so some parts of the code may appear to have been generated by AI, but they were only refactored.
+
+### Documentation
+
+In the documentation, AI was primarily used for stylistic improvements and spelling corrections, i.e., to improve the existing text.
+Additionally, the skeleton of this documentation was generated by AI.
+Finally, it was also used for translation, as it translates content in context rather than by a conventional translator.
+
+### Conclusion
+
+I hope that this project meets all the requirements specified in the assignment. It implements all functionalities for both protocol variants – TCP and UDP.
+It also meets the general requirements for both projects. It is programmed in C++ and utilizes object-oriented programming.
+Overall, I consider the project functional and meeting all the assignment points.

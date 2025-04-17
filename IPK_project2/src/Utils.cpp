@@ -1,11 +1,4 @@
 #include "Utils.h"
-#include <sstream>
-#include <cctype>
-#include <cstring>
-#include <netdb.h>
-#include <iostream>
-#include <cstdlib>
-#include <getopt.h>
 
 void help() {
     std::cout << std::endl;
@@ -106,7 +99,7 @@ bool isPrintableChar(const std::string &str) {
 
 bool isValidMessage(const std::string &message) {
     for (char c : message) {
-        if(c != 0x0A && (c < 0x20 || c > 0x7E)) {
+        if (c != 0x0A && (c < 0x20 || c > 0x7E)) {
             return false;
         }
     }

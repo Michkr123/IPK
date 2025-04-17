@@ -4,6 +4,16 @@
 #include <string>
 #include <vector>
 #include <netinet/in.h>
+#include <sstream>
+#include <cctype>
+#include <cstring>
+#include <netdb.h>
+#include <iostream>
+#include <cstdlib>
+#include <getopt.h>
+#include <memory>
+#include <csignal>
+#include <fcntl.h>
 
 
 struct Options {

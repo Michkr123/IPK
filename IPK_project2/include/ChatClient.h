@@ -5,6 +5,13 @@
 #include <netinet/in.h>
 #include <cstdint>
 #include <thread>
+#include <fcntl.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <cstring>
+#include <iostream>
+#include <cstdlib>
+#include <unistd.h>
 
 /**
  * Abstract base class ChatClient.
@@ -113,6 +120,11 @@ public:
      * @param displayName The new display name.
      */
     void rename(const std::string &displayName);
+
+    /**
+     * Socket getter.
+     */
+    int getSockfd() const { return sockfd_; }
 
 protected:
     std::string hostname_;

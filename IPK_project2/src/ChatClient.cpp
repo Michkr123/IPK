@@ -1,10 +1,4 @@
 #include "ChatClient.h"
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <cstring>
-#include <iostream>
-#include <cstdlib>
-#include <unistd.h>
 
 ChatClient::ChatClient(const std::string &hostname, uint16_t port)
     : hostname_(hostname), port_(port), sockfd_(-1), state_("start"), messageID_(0)
@@ -13,7 +7,7 @@ ChatClient::ChatClient(const std::string &hostname, uint16_t port)
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
 
-    if(getaddrinfo(hostname_.c_str(), nullptr, &hints, &res) != 0) {
+    if (getaddrinfo(hostname_.c_str(), nullptr, &hints, &res) != 0) {
         std::cerr << "Error: Unable to resolve hostname " << hostname_ << std::endl;
         exit(1);
     }
@@ -27,21 +21,21 @@ ChatClient::ChatClient(const std::string &hostname, uint16_t port)
 }
 
 ChatClient::~ChatClient() {
-    if(sockfd_ != -1) {
+    if (sockfd_ != -1) {
         close(sockfd_);
         sockfd_ = -1;
     }
 }
 
 void ChatClient::gracefullEnd() {
-    if(sockfd_ != -1) {
+    if (sockfd_ != -1) {
         if (shutdown(sockfd_, SHUT_RDWR) < 0) {
-            std::cout << "ERROR: Shutdown failed!" << std::endl;
-            exit(1);
+            std::cerr << "ERROR: Shutdown failed!" << std::endl;
         }
         close(sockfd_);
         sockfd_ = -1;
     }
+    exit(0);
 }
 
 std::string ChatClient::getState() const {

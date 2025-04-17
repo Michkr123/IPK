@@ -1,15 +1,5 @@
 #include "UDPChatClient.h"
-#include <iostream>
-#include <vector>
-#include <cstring>
-#include <chrono>
-#include <thread>
-#include <arpa/inet.h>
-#include <unistd.h>
-#include <cstdlib>
-#include <algorithm>
 
-// Pack structure to ensure no padding in header.
 #pragma pack(push, 1)
 struct MessageHeader {
     uint8_t type;
@@ -18,9 +8,6 @@ struct MessageHeader {
 };
 #pragma pack(pop)
 
-////////////////////////
-// Constructor & Destructor
-////////////////////////
 UDPChatClient::UDPChatClient(const std::string &hostname, uint16_t port,  int retry_count, int timeout)
     : ChatClient(hostname, port), 
       retry_count_(retry_count), 
@@ -42,11 +29,10 @@ void UDPChatClient::connectToServer() {
 void UDPChatClient::auth(const std::string &username,
                            const std::string &secret,
                            const std::string &displayName) {
-    setState("auth");
     displayName_ = displayName;
     uint16_t msgID = getNextMessageID();
-    
     uint8_t type = TYPE_AUTH;
+
     MessageHeader header(type, msgID);
     std::vector<uint8_t> buffer(reinterpret_cast<uint8_t*>(&header),
                                 reinterpret_cast<uint8_t*>(&header) + sizeof(header));
@@ -60,15 +46,15 @@ void UDPChatClient::auth(const std::string &username,
     buffer.insert(buffer.end(), secret.begin(), secret.end());
     buffer.push_back('\0');
 
+    setState("auth");
     sendUDP(buffer);
     checkReply(msgID);
 }
 
 void UDPChatClient::joinChannel(const std::string &channel) {
-    setState("join");
     uint16_t msgID = getNextMessageID();
-    
     uint8_t type = TYPE_JOIN;
+
     MessageHeader header(type, msgID);
     std::vector<uint8_t> buffer(reinterpret_cast<uint8_t*>(&header),
                                 reinterpret_cast<uint8_t*>(&header) + sizeof(header));
@@ -79,14 +65,15 @@ void UDPChatClient::joinChannel(const std::string &channel) {
     buffer.insert(buffer.end(), displayName_.begin(), displayName_.end());
     buffer.push_back('\0');
     
+    setState("join");
     sendUDP(buffer);
     checkReply(msgID);
 }
 
 void UDPChatClient::sendMessage(const std::string &message) {
     uint16_t msgID = getNextMessageID();
-    
     uint8_t type = TYPE_MSG;
+
     MessageHeader header(type, msgID);
     std::vector<uint8_t> buffer(reinterpret_cast<uint8_t*>(&header),
                                 reinterpret_cast<uint8_t*>(&header) + sizeof(header));
@@ -100,12 +87,10 @@ void UDPChatClient::sendMessage(const std::string &message) {
     sendUDP(buffer);
 }
 
-
 void UDPChatClient::sendError(const std::string &error) {
-    setState("end");
     uint16_t msgID = getNextMessageID();
-    
     uint8_t type = TYPE_ERR;
+
     MessageHeader header(type, msgID);
     std::vector<uint8_t> buffer(reinterpret_cast<uint8_t*>(&header),
                                 reinterpret_cast<uint8_t*>(&header) + sizeof(header));
@@ -117,10 +102,10 @@ void UDPChatClient::sendError(const std::string &error) {
     buffer.push_back('\0');
 
     sendUDP(buffer);
+    setState("end");
 }
 
 void UDPChatClient::bye() {
-    setState("end");
     uint16_t msgID = getNextMessageID();
     
     uint8_t type = TYPE_BYE;
@@ -128,10 +113,17 @@ void UDPChatClient::bye() {
     std::vector<uint8_t> buffer(reinterpret_cast<uint8_t*>(&header),
                                 reinterpret_cast<uint8_t*>(&header) + sizeof(header));
     
-    buffer.insert(buffer.end(), displayName_.begin(), displayName_.end());
+    if (displayName_ != "") {
+        buffer.insert(buffer.end(), displayName_.begin(), displayName_.end());
+    }
+    else {
+        std::string unknown = "unknown";
+        buffer.insert(buffer.end(), unknown.begin(), unknown.end());
+    }
     buffer.push_back('\0');
 
     sendUDP(buffer);
+    setState("end");
 }
 
 
@@ -146,9 +138,13 @@ void UDPChatClient::sendUDP(const std::vector<uint8_t> &buffer) {
         ssize_t sentBytes = sendto(sockfd_, buffer.data(), buffer.size(), 0,
                                    reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr));
         if (sentBytes < 0) {
+            if (type == TYPE_ERR) {
+                setState("end");
+                exit(0);
+            }
             std::cout << "ERROR: Error sending UDP packet" << std::endl;
         }
-        if(type == TYPE_CONFIRM) 
+        if (type == TYPE_CONFIRM) 
             return;
         
         std::this_thread::sleep_for(std::chrono::milliseconds(timeout_));
@@ -161,12 +157,12 @@ void UDPChatClient::sendUDP(const std::vector<uint8_t> &buffer) {
     }
     
     std::cout << "ERROR: No confirmation received." << std::endl;
-    sendError("No reply was received.");
     setState("end");
 }
 
 void UDPChatClient::confirm(uint16_t refMessageID) {
     uint8_t type = TYPE_CONFIRM;
+
     MessageHeader header(type, refMessageID);
     std::vector<uint8_t> buffer(reinterpret_cast<uint8_t*>(&header),
                                 reinterpret_cast<uint8_t*>(&header) + sizeof(header));
@@ -192,7 +188,7 @@ void UDPChatClient::checkReply(uint16_t messageID) {
     }
 
     if (!found && getState() != "end") {
-        std::cout << "Error: Didn't receive reply." << std::endl;
+        std::cout << "Error: No reply was received." << std::endl;
         sendError("No reply was received.");
         setState("end");
     }
@@ -219,7 +215,7 @@ void UDPChatClient::listen() {
             if (msgType != TYPE_CONFIRM) {
                 if (std::find(seenIDs_.begin(), seenIDs_.end(), recvMessageID) != seenIDs_.end()) {
                     confirm(recvMessageID);
-                    continue; //TODO check
+                    continue;
                 }
                 else {
                     seenIDs_.push_back(recvMessageID);
@@ -253,11 +249,13 @@ void UDPChatClient::listen() {
                     break;
                 }
                 case TYPE_MSG: {
-                    if(getState() != "auth") {
+                    if (getState() != "auth") {
                         char* p = reinterpret_cast<char*>(buffer + 3);
                         std::string displayName(p);
+
                         p += displayName.size() + 1;
                         std::string message(p);
+
                         std::cout << displayName << ": " << message << std::endl;
                         confirm(recvMessageID);
                     }
@@ -274,16 +272,17 @@ void UDPChatClient::listen() {
                 case TYPE_ERR: {
                     char* p = reinterpret_cast<char*>(buffer + 3);
                     std::string displayName(p);
+
                     p += displayName.size() + 1;
                     std::string errorMsg(p);
+
                     std::cout << "ERROR FROM " << displayName << ": " << errorMsg << std::endl;
                     confirm(recvMessageID);
-                    setState("end");
-                    break;
+                    exit(1);
                 }
                 case TYPE_BYE: {
                     confirm(recvMessageID);
-                    setState("end"); //TODO wait for retransmit??
+                    setState("end");
                     break;
                 }
                 case TYPE_CONFIRM: {
@@ -303,4 +302,5 @@ void UDPChatClient::listen() {
             std::cout << "ERROR: Error receiving UDP message." << std::endl;
         }
     }
+    exit(0);
 }
