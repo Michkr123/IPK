@@ -3,10 +3,8 @@
 
 #include "ChatClient.h"
 #include <string>
-#include <boost/algorithm/string.hpp>
 #include <iostream>
 #include <sstream>
-#include <cstring>
 #include <chrono>
 #include <thread>
 #include <unistd.h>

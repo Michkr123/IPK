@@ -9,6 +9,8 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <cstring>
+#include <algorithm>
+#include <cctype>
 #include <iostream>
 #include <cstdlib>
 #include <unistd.h>

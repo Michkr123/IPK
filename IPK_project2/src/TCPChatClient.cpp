@@ -140,7 +140,9 @@ void TCPChatClient::listen() {
             std::istringstream iss(message);
             std::string command;
             iss >> command;
-            boost::to_upper(command);
+            std::transform(command.begin(), command.end(), command.begin(), [](unsigned char c) {
+                return std::toupper(c);
+            });
             std::string extra;
 
             if (command == "REPLY") {
@@ -150,7 +152,10 @@ void TCPChatClient::listen() {
                     continue;
                 }
                 std::string content;
-                boost::to_upper(is);
+                std::transform(is.begin(), is.end(), is.begin(), [](unsigned char c) {
+                    return std::toupper(c);
+                });
+                
                 std::getline(iss, content);
                 if (is != "IS" || content.empty() || iss >> extra) {
                     malformedMessage();
@@ -174,8 +179,12 @@ void TCPChatClient::listen() {
                         malformedMessage();
                         continue;
                     }
-                    boost::to_upper(from);
-                    boost::to_upper(is);
+                    std::transform(from.begin(), from.end(), from.begin(), [](unsigned char c) {
+                        return std::toupper(c);
+                    });
+                    std::transform(is.begin(), is.end(), is.begin(), [](unsigned char c) {
+                        return std::toupper(c);
+                    });
                     std::string content;
                     std::getline(iss, content);
                     if (content.empty() || from != "FROM" || is != "IS" || iss >> extra) {
@@ -195,8 +204,12 @@ void TCPChatClient::listen() {
                     malformedMessage();
                     continue;
                 }
-                boost::to_upper(from);
-                boost::to_upper(is);
+                std::transform(from.begin(), from.end(), from.begin(), [](unsigned char c) {
+                    return std::toupper(c);
+                });
+                std::transform(is.begin(), is.end(), is.begin(), [](unsigned char c) {
+                    return std::toupper(c);
+                });
                 std::string content;
                 std::getline(iss, content);
                 if (content.empty() || from != "FROM" || is != "IS" || iss >> extra) {

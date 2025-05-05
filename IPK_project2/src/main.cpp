@@ -55,7 +55,12 @@ int main(int argc, char *argv[]) {
         if (bytes > 0) {
             buffer[bytes] = '\0';
             std::string input(buffer);
-            boost::trim(input);
+            input.erase(input.begin(), std::find_if(input.begin(), input.end(), [](unsigned char ch) {
+                return !std::isspace(ch);
+            }));
+            input.erase(std::find_if(input.rbegin(), input.rend(), [](unsigned char ch) {
+                return !std::isspace(ch);
+            }).base(), input.end());
             if (input.empty()) { 
                 continue;
             }
